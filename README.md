@@ -1,69 +1,156 @@
-# Finance Desk — Sync Server
+# Finance Desk
 
-A tiny, **dependency-free** sync server so you can use Finance Desk across
-multiple devices and share a household ledger with family. Built on Node's
-built-in `http` and `crypto` modules with a JSON file for storage — no
-`npm install`, no database to set up.
+A personal & family bookkeeping web app with a QuickBooks-style backbone. It
+runs entirely in the browser, stores your data locally, and produces real
+financial statements — a **Profit & Loss** and a **Balance Sheet** that actually
+balances — on top of a proper **double-entry** accounting engine.
 
-## Run it
+One responsive codebase serves both **desktop** (sidebar navigation, multi-column
+views) and **mobile** (bottom tab bar with a quick-add button, stacked layouts).
+
+## Features
+
+- **Double-entry engine** — every transaction posts balanced debits and credits,
+  so reports tie out the way real bookkeeping does.
+- **Chart of Accounts with subcategories** — accounts grouped into Assets,
+  Liabilities, Equity, Income, and Expenses, each with a live balance. Nest
+  **subcategories** under a parent (e.g. Groceries → Food, Household); parents
+  roll up their children in balances and reports.
+- **Friendly entry** — add an **Expense**, **Income**, or **Transfer** through a
+  simple form; the app builds the underlying journal entry for you.
+- **Split transactions** — divide one transaction across several
+  categories/subcategories (e.g. a store run that's part Food, part Household).
+- **Account registers** — drill into any account to see its transactions with a
+  running balance.
+- **Reports**
+  - **Profit & Loss** for this month, last month, this/last year, all time, or a
+    custom date range — grouped by category with subcategory breakdowns.
+  - **Cash Flow** — change in cash & bank over a period (operating, financing,
+    equity), reconciled to your account balances.
+  - **Balance Sheet** as of any date, with a live "in balance" check
+    (Assets = Liabilities + Equity).
+- **Dashboard** — net worth, income/expense/net for the month, a spending donut,
+  and recent activity.
+- **Monthly budgets** — per-category and per-subcategory limits with progress
+  bars and over-limit warnings.
+- **Backup & restore** — **CSV** export/import for transactions, and full **JSON**
+  backup/restore (accounts + transactions + budgets) in **Settings**.
+- **PIN lock & encryption** — optionally lock the app behind a PIN and encrypt
+  your data **at rest** on the device with AES-GCM (key derived from your PIN via
+  PBKDF2). See "Security" below.
+- **Sync across devices & shared family books** — an optional, **self-hosted**
+  Node server lets you sync your Personal books between devices and share a
+  **Household** ledger with family. See [`server/README.md`](server/README.md).
+- **Light / dark theme**, responsive, and **zero dependencies** on the client —
+  plain HTML, CSS, and JavaScript.
+
+## Getting started
+
+Open `index.html` in a browser — no build step or server required.
+
+To serve it locally (optional):
 
 ```bash
-node server/server.js
-# or, from this folder:
-npm start
+python3 -m http.server 8000
+# then visit http://localhost:8000
 ```
 
-Then open the app it serves at <http://localhost:4000>. The server hosts both
-the app **and** the sync API on one origin, so there's nothing else to run.
+## How the accounting works
 
-### Configuration (environment variables)
+Finance Desk keeps a single **journal** of balanced entries. Each account has a
+"normal" side:
 
-| Variable    | Default            | Purpose |
-|-------------|--------------------|---------|
-| `PORT`      | `4000`             | Port to listen on |
-| `FD_SECRET` | generated & stored | Secret for signing auth tokens. **Set this** to keep everyone logged in across restarts. |
-| `FD_DB`     | `server/db.json`   | Where data is stored |
-| `FD_STATIC` | repo root          | Folder the app is served from |
+| Type       | Normal balance | Increases with |
+|------------|----------------|----------------|
+| Asset      | Debit          | Debit          |
+| Liability  | Credit         | Credit         |
+| Equity     | Credit         | Credit         |
+| Income     | Credit         | Credit         |
+| Expense    | Debit          | Debit          |
 
-```bash
-PORT=8080 FD_SECRET="a-long-random-string" node server/server.js
+The friendly forms map to journal entries like this:
+
+- **Expense** — debit an expense category, credit the account you paid from
+  (an asset like Checking, or a liability like a Credit Card).
+- **Split expense** — debit several expense categories, credit one payment
+  account for the total.
+- **Income** — debit the account you deposited into, credit an income category.
+- **Transfer** — debit the destination account, credit the source account.
+- **Opening balances** — when you create an asset/liability account with a
+  starting balance, the offset posts to **Opening Balance Equity**.
+
+**Subcategories** are accounts with a `parentId` pointing at a same-type parent
+(one level deep). You post to whichever level you like; parents roll up their
+children in the Accounts view, budgets, and reports.
+
+Because every entry balances, the Balance Sheet identity always holds:
+
+```
+Assets = Liabilities + Equity + Net Income
 ```
 
-## How sync works
+## Security (PIN & encryption)
 
-- **Accounts** — register with an email + password. Each user automatically gets
-  a **Personal** workspace.
-- **Workspaces** — a workspace holds one dataset (accounts, transactions,
-  budgets). Create a **Shared** workspace for the family and invite others.
-- **Invite codes** — a shared-workspace member generates a code; others join
-  with it.
-- **Push / Pull** — the whole dataset syncs with a version counter. If someone
-  else pushed since you last synced, your push is rejected (409) and the app
-  asks you to pull first. Simple and predictable for family use.
+In **Settings → Security** you can set a PIN. When enabled:
 
-## API
+- Your data is encrypted in the browser with **AES-GCM**; the key is derived from
+  your PIN with **PBKDF2** (SHA-256, 210k iterations) and a random salt. Only the
+  salt, IV, and ciphertext are stored — never the PIN or the key.
+- On launch, the app shows a **lock screen** and only decrypts after the correct
+  PIN is entered. The plaintext copies are removed from storage.
 
-| Method & path | Auth | Purpose |
-|---------------|------|---------|
-| `GET /api/health` | — | Status + counts |
-| `POST /api/register` | — | `{email,password}` → `{token,user}` (creates Personal workspace) |
-| `POST /api/login` | — | `{email,password}` → `{token,user}` |
-| `GET /api/workspaces` | ✓ | List your workspaces + roles |
-| `POST /api/workspaces` | ✓ | `{name}` → create a shared workspace |
-| `POST /api/workspaces/:id/invite` | ✓ | → `{code}` (shared only) |
-| `POST /api/workspaces/join` | ✓ | `{code}` → join a shared workspace |
-| `GET /api/workspaces/:id/data` | ✓ | → `{version,data,updatedAt}` |
-| `PUT /api/workspaces/:id/data` | ✓ | `{baseVersion,data}` → `{version}` or `409` |
+Honest scope: this protects data **at rest on the device**. It is not a
+server-enforced login and can't defend against malware in your browser. **If you
+forget the PIN, only a JSON backup can recover your data** — so keep one.
 
-Auth is a signed token (HMAC-SHA256) sent as `Authorization: Bearer <token>`.
-Passwords are hashed with `scrypt`.
+## Sync (self-hosted, personal + shared)
 
-## Security notes
+Sync is optional and runs on a small server you host yourself — see
+[`server/README.md`](server/README.md). In short:
 
-- Run behind HTTPS (a reverse proxy like Caddy or nginx) if exposing beyond your
-  home network — tokens and data are sent in plaintext over HTTP otherwise.
-- The server stores workspace data **unencrypted** in `db.json` (you control the
-  box). The app's **PIN encryption protects data at rest on each device**, not
-  the server copy.
-- There's no rate limiting or email verification — it's built for a trusted
-  household, not the public internet. Keep `db.json` backed up.
+1. Run `node server/server.js` (zero dependencies). It serves the app **and** the
+   sync API on one origin.
+2. In **Settings → Sync**, enter the server URL, **Register**, then **Log in** on
+   each device.
+3. Each account gets a **Personal** workspace. Create a **Shared** workspace for
+   the family and **Invite** others with a code.
+4. **Push** sends this device's data; **Pull** replaces it with the server copy.
+   Concurrent edits are guarded with a version check (pull before you push).
+
+Note: synced data is stored **unencrypted on your server** (you control it). The
+PIN encryption protects the local device copy, not the server copy.
+
+## Project structure
+
+```
+index.html   App shell (sidebar + mobile bottom-nav), views, and modals
+styles.css   Responsive styling and theming (CSS custom properties)
+store.js     Data model + double-entry engine + reports + persistence
+crypto.js    PIN vault — AES-GCM encryption of data at rest (Web Crypto)
+sync.js      Client sync layer (talks to the self-hosted server)
+app.js       UI layer: router, views, forms, charts, CSV
+server/      Self-hosted sync server (Node, zero dependencies)
+```
+
+`store.js` is DOM-free and can be loaded in Node for testing the engine.
+
+## Data & privacy
+
+Everything is stored locally in your browser via `localStorage`:
+
+- `financedesk.accounts` — your chart of accounts
+- `financedesk.journal` — all journal entries
+- `financedesk.budgets` — per-category monthly limits
+- `financedesk.theme` — light/dark preference
+
+Nothing is sent anywhere. Clearing your browser data removes it, so use
+**Export CSV** to keep a backup. Data from the earlier single-entry prototype
+(`fintrack.*`) is migrated automatically on first load.
+
+## Roadmap ideas
+
+- Auto-sync (push/pull on a timer) and per-entity merge instead of whole-dataset
+- Reconciliation workflow for account registers
+- Month-over-month and year-over-year report comparisons
+- Recurring transactions
+- End-to-end encryption of synced data (so the server can't read it)
