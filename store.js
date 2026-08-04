@@ -29,6 +29,7 @@
     accounts: "financedesk.accounts",
     journal: "financedesk.journal",
     budgets: "financedesk.budgets",
+    recurring: "financedesk.recurring",
     theme: "financedesk.theme",
     meta: "financedesk.meta",
   };
@@ -90,7 +91,7 @@
   // tombstones record deletions (id -> ms) so a delete on one device isn't
   // resurrected when another device's copy is merged in. meta.budgetsUpdatedAt
   // is a last-write-wins clock for the budgets map.
-  var state = { accounts: [], journal: [], budgets: {}, tombstones: { journal: {}, accounts: {} }, meta: { budgetsUpdatedAt: 0 } };
+  var state = { accounts: [], journal: [], budgets: {}, recurring: [], tombstones: { journal: {}, accounts: {}, recurring: {} }, meta: { budgetsUpdatedAt: 0 } };
   var changeListeners = [];
 
   // ---- Persistence (guarded so Node without localStorage is fine) ----
@@ -107,16 +108,17 @@
     if (!hasStorage()) return;
     try { root.localStorage.setItem(key, JSON.stringify(value)); } catch (e) {}
   }
-  function normTombstones(t) { t = t || {}; return { journal: t.journal || {}, accounts: t.accounts || {} }; }
+  function normTombstones(t) { t = t || {}; return { journal: t.journal || {}, accounts: t.accounts || {}, recurring: t.recurring || {} }; }
   function snapshot() {
     return { accounts: state.accounts, journal: state.journal, budgets: state.budgets,
-      tombstones: state.tombstones, meta: state.meta };
+      recurring: state.recurring, tombstones: state.tombstones, meta: state.meta };
   }
   // Load state from a decrypted object without writing plaintext to disk.
   function hydrate(data) {
     state.accounts = (data && data.accounts) || [];
     state.journal = (data && data.journal) || [];
     state.budgets = (data && data.budgets) || {};
+    state.recurring = (data && data.recurring) || [];
     state.tombstones = normTombstones(data && data.tombstones);
     state.meta = (data && data.meta) || { budgetsUpdatedAt: 0 };
     return state;
@@ -134,6 +136,7 @@
       saveKey(KEYS.accounts, state.accounts);
       saveKey(KEYS.journal, state.journal);
       saveKey(KEYS.budgets, state.budgets);
+      saveKey(KEYS.recurring, state.recurring);
       saveKey(KEYS.meta, { tombstones: state.tombstones, meta: state.meta });
     }
     for (var i = 0; i < changeListeners.length; i++) { try { changeListeners[i](); } catch (e) {} }
@@ -419,6 +422,97 @@
     persist();
   }
 
+  // ---- Recurring transactions ----
+  // A rule stores a friendly template (kind + accounts + amount/splits) plus a
+  // schedule. Posting is idempotent and safe across synced devices because each
+  // occurrence gets a DETERMINISTIC id (rule id + date), so two devices posting
+  // the same occurrence produce the same entry, which merge dedupes.
+  function advanceDate(iso, freq, interval) {
+    interval = interval || 1;
+    var parts = iso.split("-"), y = +parts[0], mo = +parts[1] - 1, d = +parts[2];
+    if (freq === "weekly") return addDays(iso, 7 * interval);
+    if (freq === "biweekly") return addDays(iso, 14 * interval);
+    if (freq === "yearly") { y += interval; }
+    else { mo += interval; y += Math.floor(mo / 12); mo = ((mo % 12) + 12) % 12; } // monthly
+    var lastDay = new Date(Date.UTC(y, mo + 1, 0)).getUTCDate();
+    var day = Math.min(d, lastDay);
+    return y + "-" + String(mo + 1).padStart(2, "0") + "-" + String(day).padStart(2, "0");
+  }
+  function ruleLines(rule) {
+    if (rule.kind === "expense") {
+      return rule.split ? buildExpenseSplit({ paymentId: rule.paymentId, splits: rule.splits })
+                        : buildExpense({ amount: rule.amount, categoryId: rule.categoryId, paymentId: rule.paymentId });
+    }
+    if (rule.kind === "income") {
+      return rule.split ? buildIncomeSplit({ depositId: rule.depositId, splits: rule.splits })
+                        : buildIncome({ amount: rule.amount, categoryId: rule.categoryId, depositId: rule.depositId });
+    }
+    return buildTransfer({ amount: rule.amount, fromId: rule.fromId, toId: rule.toId });
+  }
+  function addRecurring(fields) {
+    var rule = {
+      id: genId("r"), kind: fields.kind, description: fields.description || "",
+      amount: fields.amount || 0, split: !!fields.split, splits: fields.splits || null,
+      categoryId: fields.categoryId, paymentId: fields.paymentId, depositId: fields.depositId,
+      fromId: fields.fromId, toId: fields.toId,
+      freq: fields.freq, interval: fields.interval || 1,
+      startDate: fields.startDate, endDate: fields.endDate || null,
+      lastPosted: null, active: true, updatedAt: nowMs(),
+    };
+    state.recurring.push(rule);
+    persist();
+    postDueRecurring(fields.today || todayISO());
+    return rule;
+  }
+  function updateRecurring(id, fields) {
+    var r = state.recurring.find(function (x) { return x.id === id; });
+    if (!r) return null;
+    Object.keys(fields).forEach(function (k) { r[k] = fields[k]; });
+    r.updatedAt = nowMs();
+    persist();
+    return r;
+  }
+  function setRecurringActive(id, active) {
+    var r = state.recurring.find(function (x) { return x.id === id; });
+    if (r) { r.active = !!active; r.updatedAt = nowMs(); persist(); }
+  }
+  function deleteRecurring(id) {
+    state.recurring = state.recurring.filter(function (r) { return r.id !== id; });
+    state.tombstones.recurring[id] = nowMs();
+    persist();
+  }
+  // Post every due occurrence up to `today`. Returns how many entries were created.
+  function postDueRecurring(today) {
+    today = today || todayISO();
+    var created = 0, SAFETY = 1000;
+    state.recurring.forEach(function (rule) {
+      if (!rule.active || !rule.startDate) return;
+      var due = rule.lastPosted ? advanceDate(rule.lastPosted, rule.freq, rule.interval) : rule.startDate;
+      var guard = 0;
+      while (due <= today && (!rule.endDate || due <= rule.endDate) && guard < SAFETY) {
+        var occId = "jrec-" + rule.id + "-" + due;
+        if (!state.journal.some(function (e) { return e.id === occId; })) {
+          state.journal.push({
+            id: occId, date: due, description: rule.description, kind: rule.kind,
+            lines: ruleLines(rule), createdAt: nowISO(), updatedAt: nowMs(), recurringId: rule.id,
+          });
+          created++;
+        }
+        rule.lastPosted = due;
+        due = advanceDate(due, rule.freq, rule.interval);
+        guard++;
+      }
+    });
+    if (created) persist();
+    return created;
+  }
+  function nextDueDate(rule) {
+    if (!rule.active) return null;
+    var due = rule.lastPosted ? advanceDate(rule.lastPosted, rule.freq, rule.interval) : rule.startDate;
+    if (rule.endDate && due > rule.endDate) return null;
+    return due;
+  }
+
   // ---- Opening balances (editable after creation) ----
   function findOpeningEntry(accountId) {
     return state.journal.find(function (e) {
@@ -512,7 +606,7 @@
   // ---- JSON backup / restore ----
   function exportData() {
     return { app: "finance-desk", version: DATA_VERSION, accounts: state.accounts, journal: state.journal,
-      budgets: state.budgets, tombstones: state.tombstones, meta: state.meta };
+      budgets: state.budgets, recurring: state.recurring, tombstones: state.tombstones, meta: state.meta };
   }
   function importData(obj) {
     if (!obj || !Array.isArray(obj.accounts) || !Array.isArray(obj.journal)) {
@@ -521,6 +615,7 @@
     state.accounts = obj.accounts;
     state.journal = obj.journal;
     state.budgets = obj.budgets && typeof obj.budgets === "object" ? obj.budgets : {};
+    state.recurring = Array.isArray(obj.recurring) ? obj.recurring : [];
     state.tombstones = normTombstones(obj.tombstones);
     state.meta = obj.meta && typeof obj.meta === "object" ? obj.meta : { budgetsUpdatedAt: 0 };
     persist();
@@ -547,11 +642,12 @@
     var lt = normTombstones(local.tombstones), rt = normTombstones(remote.tombstones);
     var j = mergeCollection(local.journal, remote.journal, lt.journal, rt.journal);
     var a = mergeCollection(local.accounts, remote.accounts, lt.accounts, rt.accounts);
+    var rec = mergeCollection(local.recurring, remote.recurring, lt.recurring, rt.recurring);
     var lb = (local.meta && local.meta.budgetsUpdatedAt) || 0, rb = (remote.meta && remote.meta.budgetsUpdatedAt) || 0;
     return {
-      accounts: a.records, journal: j.records,
+      accounts: a.records, journal: j.records, recurring: rec.records,
       budgets: (rb > lb ? remote.budgets : local.budgets) || {},
-      tombstones: { journal: j.tombstones, accounts: a.tombstones },
+      tombstones: { journal: j.tombstones, accounts: a.tombstones, recurring: rec.tombstones },
       meta: { budgetsUpdatedAt: Math.max(lb, rb) },
     };
   }
@@ -588,6 +684,7 @@
       state.accounts = storedAccounts;
       state.journal = loadKey(KEYS.journal, []) || [];
       state.budgets = loadKey(KEYS.budgets, {}) || {};
+      state.recurring = loadKey(KEYS.recurring, []) || [];
       var m = loadKey(KEYS.meta, null) || {};
       state.tombstones = normTombstones(m.tombstones);
       state.meta = m.meta || { budgetsUpdatedAt: 0 };
@@ -595,7 +692,8 @@
       state.accounts = seedAccounts();
       state.journal = [];
       state.budgets = {};
-      state.tombstones = { journal: {}, accounts: {} };
+      state.recurring = [];
+      state.tombstones = { journal: {}, accounts: {}, recurring: {} };
       state.meta = { budgetsUpdatedAt: 0 };
       migrateFromFintrack();
       persist();
@@ -621,6 +719,9 @@
     addAccount: addAccount, updateAccount: updateAccount, deleteAccount: deleteAccount,
     setArchived: setArchived, accountHasEntries: accountHasEntries, setBudget: setBudget,
     getOpeningBalance: getOpeningBalance, setOpeningBalance: setOpeningBalance,
+    // recurring
+    addRecurring: addRecurring, updateRecurring: updateRecurring, setRecurringActive: setRecurringActive,
+    deleteRecurring: deleteRecurring, postDueRecurring: postDueRecurring, nextDueDate: nextDueDate,
     // vault / persistence / sync
     snapshot: snapshot, hydrate: hydrate, isEncrypted: isEncrypted, onChange: onChange, merge: merge,
     // backup

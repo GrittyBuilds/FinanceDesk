@@ -144,9 +144,20 @@
     if (a.date !== b.date) return a.date < b.date ? 1 : -1;
     return (a.createdAt || "") < (b.createdAt || "") ? 1 : -1;
   }
+  var txTab = "ledger";
   function renderTransactions() {
     var el = $("#view-transactions");
     el.innerHTML =
+      '<div class="seg tx-tabs" role="tablist">' +
+        '<button class="tx-tab' + (txTab === "ledger" ? " active" : "") + '" data-tab="ledger">Ledger</button>' +
+        '<button class="tx-tab' + (txTab === "recurring" ? " active" : "") + '" data-tab="recurring">Recurring</button>' +
+      '</div><div id="tx-tab-body"></div>';
+    $all(".tx-tab", el).forEach(function (b) { b.addEventListener("click", function () { txTab = b.dataset.tab; renderTransactions(); }); });
+    if (txTab === "recurring") renderRecurringTab();
+    else renderLedgerTab();
+  }
+  function renderLedgerTab() {
+    $("#tx-tab-body").innerHTML =
       '<div class="card"><div class="card-head"><h2>Transaction Ledger</h2><div class="toolbar">' +
         '<select id="f-type"><option value="all">All types</option><option value="expense">Expense</option><option value="income">Income</option><option value="transfer">Transfer</option></select>' +
         '<select id="f-account"><option value="all">All accounts</option>' + hierOptions(nonArchived(), null) + "</select>" +
@@ -161,6 +172,39 @@
     $("#import-btn").addEventListener("click", function () { $("#import-input").click(); });
     $("#import-input").addEventListener("change", handleImportFile);
     renderTxList();
+  }
+  var FREQ_LABEL = { weekly: "Weekly", biweekly: "Every 2 weeks", monthly: "Monthly", yearly: "Yearly" };
+  function renderRecurringTab() {
+    var body = $("#tx-tab-body");
+    var rules = FD.state.recurring.slice().sort(function (a, b) { return (a.description || "").localeCompare(b.description || ""); });
+    var rowsHtml = rules.map(function (r) {
+      var acc = r.kind === "expense" ? FD.getAccount(r.paymentId) : r.kind === "income" ? FD.getAccount(r.depositId) : FD.getAccount(r.fromId);
+      var amt = r.split ? (r.splits || []).reduce(function (s, x) { return s + (Number(x.amount) || 0); }, 0) : r.amount;
+      var next = FD.nextDueDate(r);
+      var sub = FREQ_LABEL[r.freq] + " · " + (r.active ? (next ? "next " + fmtDate(next) : "ended") : "paused") + (acc ? " · " + acc.name : "");
+      var cls = r.kind === "income" ? "income" : r.kind === "expense" ? "expense" : "transfer";
+      return '<li class="tx-item" data-rid="' + r.id + '">' +
+        '<div class="tx-icon">' + (r.kind === "income" ? "🔁" : r.kind === "transfer" ? "🔁" : "🔁") + '</div>' +
+        '<div class="tx-body"><div class="tx-desc"></div><div class="tx-meta"></div></div>' +
+        '<div class="tx-right"><div class="tx-amount ' + cls + '">' + money(amt) + '</div>' +
+        '<div class="tx-tag">' + (r.active ? escapeHTML(r.kind) : "paused") + "</div></div>" +
+        '<div class="tx-actions"><button class="tx-btn rec-toggle" title="' + (r.active ? "Pause" : "Resume") + '">' + (r.active ? "⏸" : "▶") + '</button>' +
+        '<button class="tx-btn rec-del" title="Delete rule">✕</button></div></li>';
+    }).join("");
+    body.innerHTML = '<div class="card"><div class="card-head"><h2>Recurring</h2><button class="btn btn-primary btn-sm" id="rec-add">+ Add recurring</button></div>' +
+      '<p class="section-hint">Rules auto-post their transactions on schedule. Deleting a rule keeps already-posted entries.</p>' +
+      (rules.length ? '<ul class="tx-list">' + rowsHtml + "</ul>" : '<div class="empty-state">No recurring transactions yet. Add one, or tick “Repeat” when creating a transaction.</div>') + "</div>";
+    rules.forEach(function (r) {
+      var li = body.querySelector('.tx-item[data-rid="' + r.id + '"]'); if (!li) return;
+      li.querySelector(".tx-desc").textContent = r.description || (FREQ_LABEL[r.freq] + " " + r.kind);
+      var acc = r.kind === "expense" ? FD.getAccount(r.paymentId) : r.kind === "income" ? FD.getAccount(r.depositId) : FD.getAccount(r.fromId);
+      var amt = r.split ? (r.splits || []).reduce(function (s, x) { return s + (Number(x.amount) || 0); }, 0) : r.amount;
+      var next = FD.nextDueDate(r);
+      li.querySelector(".tx-meta").textContent = FREQ_LABEL[r.freq] + " · " + (r.active ? (next ? "next " + fmtDate(next) : "ended") : "paused") + (acc ? " · " + acc.name : "");
+      li.querySelector(".rec-toggle").addEventListener("click", function () { FD.setRecurringActive(r.id, !r.active); if (!r.active) FD.postDueRecurring(todayISO()); renderRecurringTab(); });
+      li.querySelector(".rec-del").addEventListener("click", function () { if (confirm("Delete this recurring rule? Already-posted transactions are kept.")) { FD.deleteRecurring(r.id); renderRecurringTab(); } });
+    });
+    $("#rec-add").addEventListener("click", function () { openTxDialog(null); setTimeout(function () { $("#tx-repeat").value = "monthly"; $("#tx-repeat-until-field").style.display = ""; }, 40); });
   }
   function passesFilter(e) {
     if (txFilter.type !== "all" && e.kind !== txFilter.type) return false;
@@ -482,10 +526,14 @@
     return FDSync.pull(ws).then(function (r) {
       var local = FD.exportData();
       var merged = FD.merge(local, r.data || {});
-      applyingRemote = true; FD.importData(merged); applyingRemote = false;
+      applyingRemote = true;
+      FD.importData(merged);
+      FD.postDueRecurring(todayISO()); // post occurrences from any merged-in rules
+      applyingRemote = false;
+      var after = FD.exportData();
       if (currentViewName() !== "settings") refresh();
-      if (!sameDataset(r.data, merged)) {
-        return FDSync.push(ws, merged).then(function (r2) { finish("Synced • v" + r2.version); });
+      if (!sameDataset(r.data, after)) {
+        return FDSync.push(ws, after).then(function (r2) { finish("Synced • v" + r2.version); });
       }
       finish("Up to date • v" + r.version);
     }).catch(function (err) {
@@ -723,6 +771,9 @@
     $("#tx-edit-id").value = editId || ""; $("#tx-delete").hidden = !editId;
     $("#tx-dialog-title").textContent = editId ? "Edit Transaction" : "New Transaction";
     $("#tx-splits").innerHTML = ""; setSplitMode(false);
+    // Repeat is only offered for brand-new transactions.
+    $("#tx-repeat-row").style.display = editId ? "none" : "";
+    $("#tx-repeat").value = "none"; $("#tx-repeat-until-field").style.display = "none"; $("#tx-repeat-until").value = "";
 
     if (editId) {
       var entry = FD.state.journal.find(function (e) { return e.id === editId; }), d = FD.describeEntry(entry);
@@ -768,8 +819,27 @@
       else { if (primary === secondary) { alert("Choose two different accounts for a transfer."); return; } lines = FD.buildTransfer({ amount: amount, fromId: primary, toId: secondary }); }
     }
     var editId = $("#tx-edit-id").value;
-    if (editId) FD.updateEntry(editId, { date: date, description: desc, kind: kind, lines: lines });
-    else FD.addEntry({ date: date, description: desc, kind: kind, lines: lines });
+    var repeat = editId ? "none" : $("#tx-repeat").value;
+    if (repeat !== "none") {
+      // Create a recurring rule; it posts the first occurrence (and any backfill).
+      var rule = { kind: kind, description: desc, freq: repeat, startDate: date, endDate: $("#tx-repeat-until").value || null, today: todayISO() };
+      if (txSplitMode && (kind === "expense" || kind === "income")) {
+        rule.split = true;
+        rule.splits = $all("#tx-splits .split-row").map(function (row) { return { accountId: row.querySelector(".split-cat").value, amount: parseFloat(row.querySelector(".split-amt").value) || 0 }; }).filter(function (s) { return s.amount > 0; });
+        if (kind === "expense") rule.paymentId = secondary; else rule.depositId = secondary;
+      } else {
+        rule.amount = parseFloat($("#tx-amount").value) || 0;
+        var pri = $("#tx-primary").value;
+        if (kind === "expense") { rule.categoryId = pri; rule.paymentId = secondary; }
+        else if (kind === "income") { rule.categoryId = pri; rule.depositId = secondary; }
+        else { rule.fromId = pri; rule.toId = secondary; }
+      }
+      FD.addRecurring(rule);
+    } else if (editId) {
+      FD.updateEntry(editId, { date: date, description: desc, kind: kind, lines: lines });
+    } else {
+      FD.addEntry({ date: date, description: desc, kind: kind, lines: lines });
+    }
     txDialog.close(); refresh();
   }
   function deleteTx() {
@@ -934,6 +1004,7 @@
     $("#tx-delete").addEventListener("click", deleteTx);
     $("#tx-split-toggle").addEventListener("click", toggleSplitMode);
     $("#tx-add-split").addEventListener("click", function () { addSplitRow(); });
+    $("#tx-repeat").addEventListener("change", function () { $("#tx-repeat-until-field").style.display = this.value === "none" ? "none" : ""; });
     $all('input[name="tx-kind"]').forEach(function (r) {
       r.addEventListener("change", function () {
         var k = currentKind(); populateTxSelects(k); updateSplitAvailability(k);
@@ -963,6 +1034,7 @@
   var booted = false;
   function boot() {
     if (booted) return; booted = true;
+    FD.postDueRecurring(todayISO()); // catch up any recurring transactions due
     bindDialogs();
     $("#new-tx-btn").addEventListener("click", function () { openTxDialog(null); });
     $("#new-tx-tab").addEventListener("click", function () { openTxDialog(null); });

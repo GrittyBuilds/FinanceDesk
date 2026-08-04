@@ -112,6 +112,23 @@
         <select id="tx-secondary"></select>
       </label>
 
+      <div class="field-row" id="tx-repeat-row">
+        <label class="field">
+          <span>Repeat</span>
+          <select id="tx-repeat">
+            <option value="none">Does not repeat</option>
+            <option value="weekly">Weekly</option>
+            <option value="biweekly">Every 2 weeks</option>
+            <option value="monthly">Monthly</option>
+            <option value="yearly">Yearly</option>
+          </select>
+        </label>
+        <label class="field" id="tx-repeat-until-field" style="display:none">
+          <span>Until <span class="muted">(optional)</span></span>
+          <input type="date" id="tx-repeat-until" />
+        </label>
+      </div>
+
       <div class="dialog-actions">
         <button type="button" id="tx-delete" class="btn btn-danger" hidden>Delete</button>
         <span class="spacer"></span>

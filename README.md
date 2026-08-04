@@ -22,6 +22,9 @@ views) and **mobile** (bottom tab bar with a quick-add button, stacked layouts).
   categories/subcategories (e.g. a store run that's part Food, part Household).
 - **Account registers** — drill into any account to see its transactions with a
   running balance.
+- **Recurring transactions** — set an expense, income, or transfer to repeat
+  weekly, biweekly, monthly, or yearly; occurrences post automatically (with
+  backfill), and dedupe safely across synced devices.
 - **Reports**
   - **Profit & Loss** for this month, last month, this/last year, all time, or a
     custom date range — grouped by category with subcategory breakdowns.
@@ -170,7 +173,6 @@ Nothing is sent anywhere. Clearing your browser data removes it, so use
 
 ## Roadmap ideas
 
-- Recurring transactions (auto-post rent, salary, subscriptions)
 - Reconciliation workflow for account registers
 - Month-over-month and year-over-year report comparisons
 - Field-level merge (currently whole-record last-write-wins)

@@ -302,6 +302,9 @@ input:focus, select:focus { outline: none; border-color: var(--primary); box-sha
 .code-pill { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 700; background: var(--surface-2); border: 1px dashed var(--primary); border-radius: 8px; padding: 4px 10px; letter-spacing: 0.12em; }
 .switch-lite { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; color: var(--text-muted); font-weight: 600; cursor: pointer; }
 .switch-lite input { width: auto; }
+.tx-tabs { max-width: 320px; margin-bottom: 4px; }
+.tx-tab { text-align: center; padding: 8px; border-radius: 7px; cursor: pointer; font-weight: 600; font-size: 0.88rem; color: var(--text-muted); background: none; border: none; }
+.tx-tab.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
 
 /* ---------- Settings ---------- */
 .settings-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
