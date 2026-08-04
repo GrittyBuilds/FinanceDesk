@@ -3,118 +3,163 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>FinTrack — Personal Finance Tracker</title>
+  <title>Finance Desk</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <header class="app-header">
-    <div class="brand">
-      <span class="brand-mark">₣</span>
-      <h1>FinTrack</h1>
-    </div>
-    <button id="theme-toggle" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">🌙</button>
-  </header>
-
-  <main class="container">
-    <!-- Summary cards -->
-    <section class="summary" aria-label="Summary">
-      <div class="card summary-card">
-        <span class="summary-label">Balance</span>
-        <span id="balance" class="summary-value">$0.00</span>
+  <div class="app">
+    <!-- Desktop sidebar -->
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark">FD</span>
+        <span class="brand-name">Finance Desk</span>
       </div>
-      <div class="card summary-card income">
-        <span class="summary-label">Income</span>
-        <span id="total-income" class="summary-value">$0.00</span>
+      <nav class="nav-list" aria-label="Primary">
+        <a class="nav-link" data-view="dashboard" href="#dashboard"><span class="nav-ico">📊</span> Dashboard</a>
+        <a class="nav-link" data-view="transactions" href="#transactions"><span class="nav-ico">🧾</span> Transactions</a>
+        <a class="nav-link" data-view="reports" href="#reports"><span class="nav-ico">📈</span> Reports</a>
+        <a class="nav-link" data-view="accounts" href="#accounts"><span class="nav-ico">🏦</span> Accounts</a>
+        <a class="nav-link" data-view="budgets" href="#budgets"><span class="nav-ico">🎯</span> Budgets</a>
+      </nav>
+      <div class="sidebar-foot">
+        <button id="theme-toggle" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">🌙</button>
       </div>
-      <div class="card summary-card expense">
-        <span class="summary-label">Expenses</span>
-        <span id="total-expense" class="summary-value">$0.00</span>
-      </div>
-    </section>
+    </aside>
 
-    <div class="grid">
-      <!-- Add / edit transaction form -->
-      <section class="card">
-        <h2 id="form-title">Add Transaction</h2>
-        <form id="transaction-form" class="form" autocomplete="off">
-          <input type="hidden" id="edit-id" value="" />
-          <div class="type-toggle" role="radiogroup" aria-label="Transaction type">
-            <input type="radio" id="type-expense" name="type" value="expense" checked />
-            <label for="type-expense">Expense</label>
-            <input type="radio" id="type-income" name="type" value="income" />
-            <label for="type-income">Income</label>
-          </div>
+    <!-- Main column -->
+    <div class="main">
+      <header class="topbar">
+        <button id="menu-theme" class="icon-btn mobile-only" title="Toggle theme" aria-label="Toggle theme">🌙</button>
+        <h1 id="page-title">Dashboard</h1>
+        <button id="new-tx-btn" class="btn btn-primary btn-new">+ New</button>
+      </header>
 
-          <label class="field">
-            <span>Description</span>
-            <input type="text" id="description" placeholder="e.g. Groceries" required maxlength="80" />
-          </label>
-
-          <div class="field-row">
-            <label class="field">
-              <span>Amount</span>
-              <input type="number" id="amount" placeholder="0.00" step="0.01" min="0.01" required />
-            </label>
-            <label class="field">
-              <span>Date</span>
-              <input type="date" id="date" required />
-            </label>
-          </div>
-
-          <label class="field">
-            <span>Category</span>
-            <select id="category"></select>
-          </label>
-
-          <div class="form-actions">
-            <button type="submit" id="submit-btn" class="btn btn-primary">Add Transaction</button>
-            <button type="button" id="cancel-edit" class="btn btn-ghost" hidden>Cancel</button>
-          </div>
-        </form>
-      </section>
-
-      <!-- Category breakdown -->
-      <section class="card">
-        <h2>Spending by Category</h2>
-        <div id="chart-empty" class="empty-state">No expenses yet.</div>
-        <canvas id="chart" width="300" height="300" aria-label="Spending by category chart"></canvas>
-        <ul id="chart-legend" class="legend"></ul>
-      </section>
+      <main class="views">
+        <section class="view" id="view-dashboard"></section>
+        <section class="view" id="view-transactions" hidden></section>
+        <section class="view" id="view-reports" hidden></section>
+        <section class="view" id="view-accounts" hidden></section>
+        <section class="view" id="view-budgets" hidden></section>
+      </main>
     </div>
 
-    <!-- Monthly budgets -->
-    <section class="card">
-      <div class="list-header">
-        <h2>Monthly Budgets</h2>
-        <span id="budget-month" class="muted-badge"></span>
-      </div>
-      <p class="section-hint">Set a monthly limit per category. Progress reflects this month's spending.</p>
-      <ul id="budget-list" class="budget-list"></ul>
-    </section>
+    <!-- Mobile bottom navigation -->
+    <nav class="bottom-nav" aria-label="Primary mobile">
+      <a class="tab" data-view="dashboard" href="#dashboard"><span class="tab-ico">📊</span><span>Home</span></a>
+      <a class="tab" data-view="transactions" href="#transactions"><span class="tab-ico">🧾</span><span>Ledger</span></a>
+      <button class="tab tab-add" id="new-tx-tab" aria-label="New transaction"><span class="tab-plus">+</span></button>
+      <a class="tab" data-view="reports" href="#reports"><span class="tab-ico">📈</span><span>Reports</span></a>
+      <a class="tab" data-view="accounts" href="#accounts"><span class="tab-ico">🏦</span><span>Accounts</span></a>
+    </nav>
+  </div>
 
-    <!-- Transactions list -->
-    <section class="card">
-      <div class="list-header">
-        <h2>Transactions</h2>
-        <div class="toolbar">
-          <select id="filter-type" aria-label="Filter by type">
-            <option value="all">All types</option>
-            <option value="income">Income</option>
-            <option value="expense">Expense</option>
-          </select>
-          <select id="filter-category" aria-label="Filter by category">
-            <option value="all">All categories</option>
-          </select>
-          <button id="export-btn" class="btn btn-ghost btn-sm" type="button">Export CSV</button>
-          <button id="import-btn" class="btn btn-ghost btn-sm" type="button">Import CSV</button>
-          <input type="file" id="import-input" accept=".csv,text/csv" hidden />
-        </div>
+  <!-- Transaction modal -->
+  <dialog id="tx-dialog" class="dialog">
+    <form id="tx-form" method="dialog" class="dialog-form" autocomplete="off">
+      <div class="dialog-head">
+        <h2 id="tx-dialog-title">New Transaction</h2>
+        <button type="button" class="icon-btn dialog-close" data-close aria-label="Close">✕</button>
       </div>
-      <ul id="transaction-list" class="transaction-list"></ul>
-      <div id="list-empty" class="empty-state">No transactions yet. Add one to get started.</div>
-    </section>
-  </main>
 
+      <input type="hidden" id="tx-edit-id" value="" />
+
+      <div class="seg" role="radiogroup" aria-label="Transaction type">
+        <input type="radio" id="k-expense" name="tx-kind" value="expense" checked />
+        <label for="k-expense">Expense</label>
+        <input type="radio" id="k-income" name="tx-kind" value="income" />
+        <label for="k-income">Income</label>
+        <input type="radio" id="k-transfer" name="tx-kind" value="transfer" />
+        <label for="k-transfer">Transfer</label>
+      </div>
+
+      <label class="field">
+        <span>Description</span>
+        <input type="text" id="tx-desc" placeholder="e.g. Weekly groceries" maxlength="120" />
+      </label>
+
+      <div class="field-row">
+        <label class="field">
+          <span>Amount</span>
+          <input type="number" id="tx-amount" placeholder="0.00" step="0.01" min="0.01" required />
+        </label>
+        <label class="field">
+          <span>Date</span>
+          <input type="date" id="tx-date" required />
+        </label>
+      </div>
+
+      <label class="field">
+        <span id="tx-primary-label">Category</span>
+        <select id="tx-primary"></select>
+      </label>
+      <label class="field">
+        <span id="tx-secondary-label">Paid from</span>
+        <select id="tx-secondary"></select>
+      </label>
+
+      <div class="dialog-actions">
+        <button type="button" id="tx-delete" class="btn btn-danger" hidden>Delete</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn btn-ghost" data-close>Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Account modal -->
+  <dialog id="account-dialog" class="dialog">
+    <form id="account-form" method="dialog" class="dialog-form" autocomplete="off">
+      <div class="dialog-head">
+        <h2 id="account-dialog-title">New Account</h2>
+        <button type="button" class="icon-btn dialog-close" data-close aria-label="Close">✕</button>
+      </div>
+
+      <input type="hidden" id="acct-edit-id" value="" />
+
+      <div class="field-row">
+        <label class="field field-grow">
+          <span>Name</span>
+          <input type="text" id="acct-name" placeholder="e.g. Emergency Fund" maxlength="60" required />
+        </label>
+        <label class="field field-icon">
+          <span>Icon</span>
+          <input type="text" id="acct-icon" placeholder="🏦" maxlength="2" />
+        </label>
+      </div>
+
+      <label class="field">
+        <span>Type</span>
+        <select id="acct-type">
+          <option value="asset">Asset (cash, bank, property)</option>
+          <option value="liability">Liability (credit card, loan)</option>
+          <option value="income">Income category</option>
+          <option value="expense">Expense category</option>
+          <option value="equity">Equity</option>
+        </select>
+      </label>
+
+      <div id="acct-opening-wrap" class="field-row">
+        <label class="field">
+          <span>Opening balance</span>
+          <input type="number" id="acct-opening" placeholder="0.00" step="0.01" />
+        </label>
+        <label class="field">
+          <span>As of</span>
+          <input type="date" id="acct-opening-date" />
+        </label>
+      </div>
+      <p id="acct-type-hint" class="dialog-hint"></p>
+
+      <div class="dialog-actions">
+        <button type="button" id="acct-delete" class="btn btn-danger" hidden>Delete</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn btn-ghost" data-close>Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="store.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
