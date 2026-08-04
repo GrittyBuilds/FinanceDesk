@@ -1,3 +1,7 @@
-db.json
-db.json.tmp
+.DS_Store
 node_modules/
+*.log
+
+# Self-hosted sync server runtime data
+server/db.json
+server/db.json.tmp
