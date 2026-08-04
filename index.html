@@ -179,7 +179,34 @@
     </form>
   </dialog>
 
+  <!-- Lock screen (shown when a PIN is set) -->
+  <div id="lock-screen" class="lock-screen" hidden>
+    <div class="lock-card">
+      <div class="brand" style="justify-content:center"><span class="brand-mark">FD</span><span class="brand-name">Finance Desk</span></div>
+      <p class="lock-msg">Enter your PIN to unlock</p>
+      <form id="lock-form">
+        <input type="password" id="lock-pin" class="lock-input" inputmode="numeric" autocomplete="off" placeholder="••••" aria-label="PIN" />
+        <div id="lock-error" class="form-error" hidden></div>
+        <button type="submit" class="btn btn-primary" style="width:100%">Unlock</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- PIN setup / change dialog -->
+  <dialog id="pin-dialog" class="dialog">
+    <form id="pin-form" method="dialog" class="dialog-form" autocomplete="off">
+      <div class="dialog-head"><h2 id="pin-dialog-title">Set a PIN</h2><button type="button" class="icon-btn dialog-close" data-close aria-label="Close">✕</button></div>
+      <p class="dialog-hint" id="pin-dialog-hint">Your data will be encrypted on this device with this PIN. If you forget it, only a JSON backup can recover your data.</p>
+      <label class="field"><span>PIN (at least 4 characters)</span><input type="password" id="pin-new" inputmode="numeric" autocomplete="new-password" /></label>
+      <label class="field"><span>Confirm PIN</span><input type="password" id="pin-confirm" inputmode="numeric" autocomplete="new-password" /></label>
+      <div id="pin-error" class="form-error" hidden></div>
+      <div class="dialog-actions"><span class="spacer"></span><button type="button" class="btn btn-ghost" data-close>Cancel</button><button type="submit" class="btn btn-primary">Save</button></div>
+    </form>
+  </dialog>
+
   <script src="store.js"></script>
+  <script src="crypto.js"></script>
+  <script src="sync.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
