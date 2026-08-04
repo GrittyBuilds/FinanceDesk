@@ -87,7 +87,11 @@
   }
 
   // ---- State ----
-  var state = { accounts: [], journal: [], budgets: {} };
+  // tombstones record deletions (id -> ms) so a delete on one device isn't
+  // resurrected when another device's copy is merged in. meta.budgetsUpdatedAt
+  // is a last-write-wins clock for the budgets map.
+  var state = { accounts: [], journal: [], budgets: {}, tombstones: { journal: {}, accounts: {} }, meta: { budgetsUpdatedAt: 0 } };
+  var changeListeners = [];
 
   // ---- Persistence (guarded so Node without localStorage is fine) ----
   function hasStorage() {
@@ -103,14 +107,18 @@
     if (!hasStorage()) return;
     try { root.localStorage.setItem(key, JSON.stringify(value)); } catch (e) {}
   }
+  function normTombstones(t) { t = t || {}; return { journal: t.journal || {}, accounts: t.accounts || {} }; }
   function snapshot() {
-    return { accounts: state.accounts, journal: state.journal, budgets: state.budgets };
+    return { accounts: state.accounts, journal: state.journal, budgets: state.budgets,
+      tombstones: state.tombstones, meta: state.meta };
   }
   // Load state from a decrypted object without writing plaintext to disk.
   function hydrate(data) {
     state.accounts = (data && data.accounts) || [];
     state.journal = (data && data.journal) || [];
     state.budgets = (data && data.budgets) || {};
+    state.tombstones = normTombstones(data && data.tombstones);
+    state.meta = (data && data.meta) || { budgetsUpdatedAt: 0 };
     return state;
   }
   function vaultActive() {
@@ -121,11 +129,16 @@
   }
   function persist() {
     // When a PIN vault is unlocked, save the encrypted blob instead of plaintext.
-    if (vaultActive()) { root.FDVault.save(snapshot()); return; }
-    saveKey(KEYS.accounts, state.accounts);
-    saveKey(KEYS.journal, state.journal);
-    saveKey(KEYS.budgets, state.budgets);
+    if (vaultActive()) { root.FDVault.save(snapshot()); }
+    else {
+      saveKey(KEYS.accounts, state.accounts);
+      saveKey(KEYS.journal, state.journal);
+      saveKey(KEYS.budgets, state.budgets);
+      saveKey(KEYS.meta, { tombstones: state.tombstones, meta: state.meta });
+    }
+    for (var i = 0; i < changeListeners.length; i++) { try { changeListeners[i](); } catch (e) {} }
   }
+  function onChange(fn) { changeListeners.push(fn); }
 
   // ---- ids ----
   var counter = 0;
@@ -322,11 +335,14 @@
   // ---- Mutations ----
   function nowISO() { return hasStorage() ? new Date().toISOString() : "1970-01-01T00:00:00.000Z"; }
   function todayISO() { return hasStorage() ? new Date().toISOString().slice(0, 10) : "1970-01-01"; }
+  // Monotonic-ish wall clock in ms, used to order records/tombstones during merge.
+  var lastMs = 0;
+  function nowMs() { var t = Date.now(); if (t <= lastMs) t = lastMs + 1; lastMs = t; return t; }
 
   function addEntry(fields) {
     var entry = {
       id: genId("j"), date: fields.date, description: fields.description || "",
-      kind: fields.kind || "journal", lines: fields.lines, createdAt: nowISO(),
+      kind: fields.kind || "journal", lines: fields.lines, createdAt: nowISO(), updatedAt: nowMs(),
     };
     state.journal.push(entry);
     persist();
@@ -338,20 +354,21 @@
     var e = state.journal[idx];
     state.journal[idx] = {
       id: e.id, createdAt: e.createdAt, date: fields.date, description: fields.description || "",
-      kind: fields.kind || e.kind, lines: fields.lines,
+      kind: fields.kind || e.kind, lines: fields.lines, updatedAt: nowMs(),
     };
     persist();
     return state.journal[idx];
   }
   function deleteEntry(id) {
     state.journal = state.journal.filter(function (e) { return e.id !== id; });
+    state.tombstones.journal[id] = nowMs();
     persist();
   }
 
   function addAccount(fields) {
     var acct = {
       id: genId("a"), name: fields.name, type: fields.type,
-      icon: fields.icon || defaultIcon(fields.type), archived: false,
+      icon: fields.icon || defaultIcon(fields.type), archived: false, updatedAt: nowMs(),
     };
     if (fields.parentId) acct.parentId = fields.parentId;
     state.accounts.push(acct);
@@ -377,10 +394,11 @@
       if (!fields.parentId) delete a.parentId;
       else if (fields.parentId !== id && !hasChildren(state.accounts, id)) a.parentId = fields.parentId;
     }
+    a.updatedAt = nowMs();
     persist();
     return a;
   }
-  function setArchived(id, archived) { var a = getAccount(id); if (a) { a.archived = !!archived; persist(); } }
+  function setArchived(id, archived) { var a = getAccount(id); if (a) { a.archived = !!archived; a.updatedAt = nowMs(); persist(); } }
   function accountHasEntries(id) {
     return state.journal.some(function (e) { return e.lines.some(function (l) { return l.accountId === id; }); });
   }
@@ -389,12 +407,15 @@
     if (hasChildren(state.accounts, id)) return false;
     state.accounts = state.accounts.filter(function (a) { return a.id !== id; });
     if (state.budgets[id]) delete state.budgets[id];
+    state.tombstones.accounts[id] = nowMs();
+    state.meta.budgetsUpdatedAt = nowMs();
     persist();
     return true;
   }
   function setBudget(accountId, amount) {
     var v = Number(amount) || 0;
     if (v > 0) state.budgets[accountId] = v; else delete state.budgets[accountId];
+    state.meta.budgetsUpdatedAt = nowMs();
     persist();
   }
 
@@ -490,7 +511,8 @@
 
   // ---- JSON backup / restore ----
   function exportData() {
-    return { app: "finance-desk", version: DATA_VERSION, accounts: state.accounts, journal: state.journal, budgets: state.budgets };
+    return { app: "finance-desk", version: DATA_VERSION, accounts: state.accounts, journal: state.journal,
+      budgets: state.budgets, tombstones: state.tombstones, meta: state.meta };
   }
   function importData(obj) {
     if (!obj || !Array.isArray(obj.accounts) || !Array.isArray(obj.journal)) {
@@ -499,8 +521,39 @@
     state.accounts = obj.accounts;
     state.journal = obj.journal;
     state.budgets = obj.budgets && typeof obj.budgets === "object" ? obj.budgets : {};
+    state.tombstones = normTombstones(obj.tombstones);
+    state.meta = obj.meta && typeof obj.meta === "object" ? obj.meta : { budgetsUpdatedAt: 0 };
     persist();
     return { ok: true, accounts: state.accounts.length, journal: state.journal.length };
+  }
+
+  // ---- Merge two datasets (for multi-device / shared sync) ----
+  // Records are keyed by id; the higher updatedAt wins. A tombstone newer than a
+  // record's updatedAt removes it (so deletes don't resurrect). Budgets are
+  // last-write-wins as a unit via meta.budgetsUpdatedAt.
+  function mergeCollection(localArr, remoteArr, localTomb, remoteTomb) {
+    localTomb = localTomb || {}; remoteTomb = remoteTomb || {};
+    var byId = {};
+    function consider(rec) { if (!rec || !rec.id) return; var ex = byId[rec.id]; if (!ex || (rec.updatedAt || 0) >= (ex.updatedAt || 0)) byId[rec.id] = rec; }
+    (localArr || []).forEach(consider); (remoteArr || []).forEach(consider);
+    var tomb = {};
+    [localTomb, remoteTomb].forEach(function (t) { Object.keys(t).forEach(function (id) { tomb[id] = Math.max(tomb[id] || 0, t[id]); }); });
+    var out = [];
+    Object.keys(byId).forEach(function (id) { var r = byId[id]; if ((tomb[id] || 0) > (r.updatedAt || 0)) return; out.push(r); });
+    return { records: out, tombstones: tomb };
+  }
+  function merge(local, remote) {
+    local = local || {}; remote = remote || {};
+    var lt = normTombstones(local.tombstones), rt = normTombstones(remote.tombstones);
+    var j = mergeCollection(local.journal, remote.journal, lt.journal, rt.journal);
+    var a = mergeCollection(local.accounts, remote.accounts, lt.accounts, rt.accounts);
+    var lb = (local.meta && local.meta.budgetsUpdatedAt) || 0, rb = (remote.meta && remote.meta.budgetsUpdatedAt) || 0;
+    return {
+      accounts: a.records, journal: j.records,
+      budgets: (rb > lb ? remote.budgets : local.budgets) || {},
+      tombstones: { journal: j.tombstones, accounts: a.tombstones },
+      meta: { budgetsUpdatedAt: Math.max(lb, rb) },
+    };
   }
 
   // ---- migration from old single-entry FinTrack ----
@@ -535,10 +588,15 @@
       state.accounts = storedAccounts;
       state.journal = loadKey(KEYS.journal, []) || [];
       state.budgets = loadKey(KEYS.budgets, {}) || {};
+      var m = loadKey(KEYS.meta, null) || {};
+      state.tombstones = normTombstones(m.tombstones);
+      state.meta = m.meta || { budgetsUpdatedAt: 0 };
     } else {
       state.accounts = seedAccounts();
       state.journal = [];
       state.budgets = {};
+      state.tombstones = { journal: {}, accounts: {} };
+      state.meta = { budgetsUpdatedAt: 0 };
       migrateFromFintrack();
       persist();
     }
@@ -563,8 +621,8 @@
     addAccount: addAccount, updateAccount: updateAccount, deleteAccount: deleteAccount,
     setArchived: setArchived, accountHasEntries: accountHasEntries, setBudget: setBudget,
     getOpeningBalance: getOpeningBalance, setOpeningBalance: setOpeningBalance,
-    // vault / persistence
-    snapshot: snapshot, hydrate: hydrate, isEncrypted: isEncrypted,
+    // vault / persistence / sync
+    snapshot: snapshot, hydrate: hydrate, isEncrypted: isEncrypted, onChange: onChange, merge: merge,
     // backup
     exportData: exportData, importData: importData,
     // lookups

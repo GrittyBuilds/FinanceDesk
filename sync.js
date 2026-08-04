@@ -72,6 +72,9 @@
     setE2EE: function (passphrase) { cfg.e2ee = { enabled: true, passphrase: passphrase }; save(cfg); },
     disableE2EE: function () { cfg.e2ee = { enabled: false }; save(cfg); },
 
+    isAutoSync: function () { return !!cfg.autoSync; },
+    setAutoSync: function (on) { cfg.autoSync = !!on; save(cfg); },
+
     pull: function (wsId) {
       return api("GET", "/api/workspaces/" + wsId + "/data", null, true).then(function (r) {
         cfg.versions[wsId] = r.version; save(cfg);

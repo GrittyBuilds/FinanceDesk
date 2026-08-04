@@ -300,6 +300,8 @@ input:focus, select:focus { outline: none; border-color: var(--primary); box-sha
 .sync-note.bad { color: var(--expense); }
 .ws-badge { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; border-radius: 999px; padding: 2px 7px; border: 1px solid var(--border); color: var(--text-muted); margin-left: 6px; }
 .code-pill { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 700; background: var(--surface-2); border: 1px dashed var(--primary); border-radius: 8px; padding: 4px 10px; letter-spacing: 0.12em; }
+.switch-lite { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; color: var(--text-muted); font-weight: 600; cursor: pointer; }
+.switch-lite input { width: auto; }
 
 /* ---------- Settings ---------- */
 .settings-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }

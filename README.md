@@ -114,8 +114,19 @@ Sync is optional and runs on a small server you host yourself — see
    each device.
 3. Each account gets a **Personal** workspace. Create a **Shared** workspace for
    the family and **Invite** others with a code.
-4. **Push** sends this device's data; **Pull** replaces it with the server copy.
-   Concurrent edits are guarded with a version check (pull before you push).
+4. Turn on **Auto-sync** for two-way sync that runs after each change and every
+   45 seconds. It **merges** rather than overwrites, so two people editing the
+   same workspace both keep their changes. (**Push** and **Pull** remain as manual
+   one-way overrides.)
+
+### How merge works
+
+Auto-sync pulls the server copy, merges it with your local data, and pushes the
+result. Merge is per-record: accounts and transactions are keyed by id and the
+most recently edited version wins; **deletions are tracked with tombstones** so a
+record you delete on one device isn't resurrected by another device's older copy.
+Budgets are last-write-wins as a group. A version check still guards each push
+(the client retries the merge if the server moved underneath it).
 
 ### End-to-end encryption (optional, recommended)
 
@@ -159,8 +170,7 @@ Nothing is sent anywhere. Clearing your browser data removes it, so use
 
 ## Roadmap ideas
 
-- Auto-sync (push/pull on a timer) and per-entity merge instead of whole-dataset
+- Recurring transactions (auto-post rent, salary, subscriptions)
 - Reconciliation workflow for account registers
 - Month-over-month and year-over-year report comparisons
-- Recurring transactions
-- Per-record sync merge (instead of whole-dataset last-write-wins)
+- Field-level merge (currently whole-record last-write-wins)

@@ -466,6 +466,59 @@
     FDVault.disable().then(function () { FD.persist(); renderSecurity(); });
   }
 
+  // ----- Auto-sync orchestration -----
+  var syncing = false, pendingSync = false, applyingRemote = false, autoTimer = null, syncDebounce = null;
+  function currentViewName() { var v = (location.hash || "#dashboard").slice(1); return VIEWS.indexOf(v) === -1 ? "dashboard" : v; }
+  function setAutoStatus(msg, bad) {
+    var n = $("#auto-status"); if (n) { n.textContent = msg || ""; n.className = "sync-note" + (bad ? " bad" : msg ? " ok" : ""); }
+  }
+  // Two-way sync: pull, merge into local, and push back if we added anything.
+  function fullSync(opts) {
+    opts = opts || {};
+    if (!FDSync.isLoggedIn() || !FDSync.activeWorkspace()) return Promise.resolve();
+    if (syncing) { pendingSync = true; return Promise.resolve(); }
+    syncing = true; setAutoStatus("Syncing…");
+    var ws = FDSync.activeWorkspace();
+    return FDSync.pull(ws).then(function (r) {
+      var local = FD.exportData();
+      var merged = FD.merge(local, r.data || {});
+      applyingRemote = true; FD.importData(merged); applyingRemote = false;
+      if (currentViewName() !== "settings") refresh();
+      if (!sameDataset(r.data, merged)) {
+        return FDSync.push(ws, merged).then(function (r2) { finish("Synced • v" + r2.version); });
+      }
+      finish("Up to date • v" + r.version);
+    }).catch(function (err) {
+      syncing = false;
+      if (err && err.status === 409 && !opts._retried) return fullSync({ _retried: true });
+      setAutoStatus(err && err.message ? err.message : "Sync failed", true);
+    });
+    function finish(msg) { syncing = false; setAutoStatus(msg); if (pendingSync) { pendingSync = false; setTimeout(function () { fullSync(); }, 60); } }
+  }
+  // Compare two datasets ignoring order (accounts/journal by id, budgets as-is).
+  function sameDataset(a, b) {
+    function canon(d) {
+      d = d || {};
+      var acc = (d.accounts || []).slice().sort(byId).map(function (x) { return [x.id, x.updatedAt || 0]; });
+      var jrn = (d.journal || []).slice().sort(byId).map(function (x) { return [x.id, x.updatedAt || 0]; });
+      return JSON.stringify({ a: acc, j: jrn, b: d.budgets || {} });
+    }
+    function byId(x, y) { return x.id < y.id ? -1 : x.id > y.id ? 1 : 0; }
+    return canon(a) === canon(b);
+  }
+  function scheduleAutoSync() {
+    if (!FDSync.isAutoSync() || !FDSync.isLoggedIn() || !FDSync.activeWorkspace()) return;
+    clearTimeout(syncDebounce);
+    syncDebounce = setTimeout(function () { fullSync(); }, 2500);
+  }
+  function startAutoTimer() {
+    stopAutoTimer();
+    if (!FDSync.isAutoSync()) return;
+    autoTimer = setInterval(function () { fullSync(); }, 45000);
+    fullSync(); // sync once immediately
+  }
+  function stopAutoTimer() { if (autoTimer) { clearInterval(autoTimer); autoTimer = null; } }
+
   // ----- Sync -----
   function syncNote(msg, cls) { var n = $("#sync-note"); if (n) { n.textContent = msg || ""; n.className = "sync-note" + (cls ? " " + cls : ""); } }
   function renderSync() {
@@ -546,6 +599,10 @@
           '<div class="settings-actions sync-inline"><select id="ws-select">' + opts + '</select>' +
           '<button class="btn btn-primary btn-sm" id="ws-push">Push</button><button class="btn btn-ghost btn-sm" id="ws-pull">Pull</button>' +
           '<button class="btn btn-ghost btn-sm" id="ws-invite">Invite</button></div></div>' +
+        '<div class="settings-row"><div><div class="s-label">Auto-sync</div><div class="s-desc">Sync automatically after changes and every 45s. Two-way: merges instead of overwriting.</div></div>' +
+          '<div class="settings-actions sync-inline"><label class="switch-lite"><input type="checkbox" id="auto-toggle" /> On</label>' +
+          '<button class="btn btn-primary btn-sm" id="sync-now">Sync now</button></div></div>' +
+        '<div id="auto-status" class="sync-note"></div>' +
         '<div id="ws-note" class="sync-note"></div>' +
         '<div class="settings-row"><div><div class="s-label">Create shared workspace</div><div class="s-desc">A family ledger everyone can access.</div></div>' +
           '<div class="settings-actions sync-inline"><input id="ws-new-name" placeholder="Household" style="width:150px" /><button class="btn btn-ghost btn-sm" id="ws-create">Create</button></div></div>' +
@@ -555,6 +612,13 @@
       function wsNote(m, cls) { var n = $("#ws-note"); n.textContent = m || ""; n.className = "sync-note" + (cls ? " " + cls : ""); }
       $("#ws-select").addEventListener("change", function () { FDSync.selectWorkspace(this.value); });
       FDSync.selectWorkspace(active);
+      $("#auto-toggle").checked = FDSync.isAutoSync();
+      $("#auto-toggle").addEventListener("change", function () {
+        FDSync.setAutoSync(this.checked);
+        if (this.checked) startAutoTimer(); else { stopAutoTimer(); setAutoStatus(""); }
+      });
+      $("#sync-now").addEventListener("click", function () { fullSync({ manual: true }); });
+      if (FDSync.isAutoSync()) setAutoStatus("Auto-sync on");
       $("#ws-push").addEventListener("click", function () {
         var w = selected(); if (!confirm("Push this device's data to \"" + $("#ws-select").selectedOptions[0].textContent + "\"?")) return;
         FDSync.push(w.id, FD.exportData()).then(function (r) { wsNote("Pushed. Server is now at version " + r.version + ".", "ok"); })
@@ -904,9 +968,12 @@
     $("#new-tx-tab").addEventListener("click", function () { openTxDialog(null); });
     $("#theme-toggle").addEventListener("click", toggleTheme);
     var mt = $("#menu-theme"); if (mt) mt.addEventListener("click", toggleTheme);
+    // Local changes trigger a debounced auto-sync (unless we're applying a remote merge).
+    FD.onChange(function () { if (!applyingRemote) scheduleAutoSync(); });
     window.addEventListener("hashchange", navigate);
     if (!location.hash) location.hash = "#dashboard";
     navigate();
+    if (FDSync.isAutoSync() && FDSync.isLoggedIn()) startAutoTimer();
   }
   function init() {
     initTheme();
