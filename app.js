@@ -280,24 +280,44 @@
     $all(".acct-row", el).forEach(function (row) { row.addEventListener("click", function () { acctView.id = row.dataset.id; renderAccounts(); }); });
   }
 
+  var reconcileMode = false;
+  var stmtBalances = {}; // per-account statement target, kept for the session
   function renderRegister(id) {
     var el = $("#view-accounts"), a = FD.getAccount(id);
     var rows = FD.register(FD.state.journal, a);
     var current = rows.length ? rows[rows.length - 1].balance : 0;
+    var clearedBal = FD.clearedBalance(FD.state.journal, a);
+    var stmt = stmtBalances[id];
+    var diff = (typeof stmt === "number") ? FD.round2(stmt - clearedBal) : null;
+
     var html = '<div class="card"><div class="register-head">' +
       '<button class="btn btn-ghost btn-sm" id="reg-back">← Accounts</button>' +
       '<div class="reg-title"><span class="acct-ico">' + a.icon + '</span><h2>' + escapeHTML(a.name) + '</h2></div>' +
       '<span class="reg-balance">' + money(current) + '</span>' +
+      '<button class="btn btn-ghost btn-sm" id="reg-reconcile">' + (reconcileMode ? "Done" : "Reconcile") + '</button>' +
       '<button class="btn btn-ghost btn-sm" id="reg-edit">Edit account</button></div>';
+
+    if (reconcileMode) {
+      html += '<div class="reconcile-bar">' +
+        '<label class="field" style="flex-direction:row;align-items:center;gap:8px">Statement ending balance <input type="number" step="0.01" id="reg-stmt" style="width:140px" value="' + (typeof stmt === "number" ? stmt : "") + '" /></label>' +
+        '<div class="reconcile-nums"><span>Cleared <strong>' + money(clearedBal) + '</strong></span>' +
+        (diff === null ? '<span class="muted">enter statement balance</span>' :
+          '<span>Difference <strong class="' + (Math.abs(diff) < 0.005 ? "pos" : "neg") + '">' + money(diff) + '</strong></span>' +
+          (Math.abs(diff) < 0.005 ? '<span class="pos">✓ Reconciled</span>' : "")) +
+        '</div></div>';
+    }
+
     if (!rows.length) {
       html += '<div class="empty-state">No activity in this account yet.</div>';
     } else {
-      html += '<ul class="reg-list">';
+      html += '<ul class="reg-list' + (reconcileMode ? " reconciling" : "") + '">';
       rows.slice().reverse().forEach(function (r) {
         var d = FD.describeEntry(r.entry);
         var deltaCls = r.delta >= 0 ? "pos" : "neg", sign = r.delta >= 0 ? "+" : "−";
+        var cleared = FD.isCleared(id, r.entry.id);
         html += '<li class="reg-item" data-eid="' + r.entry.id + '" tabindex="0">' +
-          '<div><div class="reg-desc"></div><div class="reg-date">' + fmtDate(r.entry.date) + ' · ' + escapeHTML(d.kind) + '</div></div>' +
+          '<button class="reg-clear' + (cleared ? " on" : "") + '" title="Mark cleared" aria-label="Toggle cleared">' + (cleared ? "●" : "○") + '</button>' +
+          '<div class="reg-main"><div class="reg-desc"></div><div class="reg-date">' + fmtDate(r.entry.date) + ' · ' + escapeHTML(d.kind) + '</div></div>' +
           '<div class="reg-delta ' + deltaCls + '">' + sign + money(Math.abs(r.delta)) + '</div>' +
           '<div class="reg-run">' + money(r.balance) + '</div></li>';
       });
@@ -305,10 +325,20 @@
     }
     html += "</div>";
     el.innerHTML = html;
-    $("#reg-back").addEventListener("click", function () { acctView.id = null; renderAccounts(); });
+    $("#reg-back").addEventListener("click", function () { acctView.id = null; reconcileMode = false; renderAccounts(); });
     $("#reg-edit").addEventListener("click", function () { openAccountDialog(id); });
+    $("#reg-reconcile").addEventListener("click", function () { reconcileMode = !reconcileMode; renderRegister(id); });
+    if (reconcileMode) {
+      $("#reg-stmt").addEventListener("change", function () {
+        var v = parseFloat(this.value); stmtBalances[id] = isNaN(v) ? undefined : v;
+        // Defer so the input's blur finishes before we replace the DOM.
+        setTimeout(function () { renderRegister(id); }, 0);
+      });
+    }
     $all(".reg-item", el).forEach(function (row) {
       var eid = row.dataset.eid, entry = FD.state.journal.find(function (e) { return e.id === eid; });
+      var clearBtn = row.querySelector(".reg-clear");
+      clearBtn.addEventListener("click", function (ev) { ev.stopPropagation(); FD.toggleCleared(id, eid); renderRegister(id); });
       if (entry && ["expense", "income", "transfer"].indexOf(entry.kind) !== -1) {
         row.querySelector(".reg-desc").textContent = entry.description || FD.describeEntry(entry).kind;
         row.addEventListener("click", function () { openTxDialog(eid); });

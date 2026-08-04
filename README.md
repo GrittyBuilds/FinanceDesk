@@ -22,6 +22,9 @@ views) and **mobile** (bottom tab bar with a quick-add button, stacked layouts).
   categories/subcategories (e.g. a store run that's part Food, part Household).
 - **Account registers** — drill into any account to see its transactions with a
   running balance.
+- **Reconciliation** — in a register, mark entries **cleared** and enter your
+  statement's ending balance; the app shows the cleared balance and the
+  difference, and flags when the account is reconciled.
 - **Recurring transactions** — set an expense, income, or transfer to repeat
   weekly, biweekly, monthly, or yearly; occurrences post automatically (with
   backfill), and dedupe safely across synced devices.
@@ -173,6 +176,5 @@ Nothing is sent anywhere. Clearing your browser data removes it, so use
 
 ## Roadmap ideas
 
-- Reconciliation workflow for account registers
 - Month-over-month and year-over-year report comparisons
 - Field-level merge (currently whole-record last-write-wins)

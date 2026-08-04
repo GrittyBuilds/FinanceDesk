@@ -91,7 +91,8 @@
   // tombstones record deletions (id -> ms) so a delete on one device isn't
   // resurrected when another device's copy is merged in. meta.budgetsUpdatedAt
   // is a last-write-wins clock for the budgets map.
-  var state = { accounts: [], journal: [], budgets: {}, recurring: [], tombstones: { journal: {}, accounts: {}, recurring: {} }, meta: { budgetsUpdatedAt: 0 } };
+  // cleared: reconciliation flags keyed "accountId|entryId" -> { c: 0|1, u: ms }.
+  var state = { accounts: [], journal: [], budgets: {}, recurring: [], cleared: {}, tombstones: { journal: {}, accounts: {}, recurring: {} }, meta: { budgetsUpdatedAt: 0 } };
   var changeListeners = [];
 
   // ---- Persistence (guarded so Node without localStorage is fine) ----
@@ -111,7 +112,7 @@
   function normTombstones(t) { t = t || {}; return { journal: t.journal || {}, accounts: t.accounts || {}, recurring: t.recurring || {} }; }
   function snapshot() {
     return { accounts: state.accounts, journal: state.journal, budgets: state.budgets,
-      recurring: state.recurring, tombstones: state.tombstones, meta: state.meta };
+      recurring: state.recurring, cleared: state.cleared, tombstones: state.tombstones, meta: state.meta };
   }
   // Load state from a decrypted object without writing plaintext to disk.
   function hydrate(data) {
@@ -119,6 +120,7 @@
     state.journal = (data && data.journal) || [];
     state.budgets = (data && data.budgets) || {};
     state.recurring = (data && data.recurring) || [];
+    state.cleared = (data && data.cleared) || {};
     state.tombstones = normTombstones(data && data.tombstones);
     state.meta = (data && data.meta) || { budgetsUpdatedAt: 0 };
     return state;
@@ -137,7 +139,7 @@
       saveKey(KEYS.journal, state.journal);
       saveKey(KEYS.budgets, state.budgets);
       saveKey(KEYS.recurring, state.recurring);
-      saveKey(KEYS.meta, { tombstones: state.tombstones, meta: state.meta });
+      saveKey(KEYS.meta, { tombstones: state.tombstones, meta: state.meta, cleared: state.cleared });
     }
     for (var i = 0; i < changeListeners.length; i++) { try { changeListeners[i](); } catch (e) {} }
   }
@@ -513,6 +515,24 @@
     return due;
   }
 
+  // ---- Reconciliation (cleared flags per account+entry) ----
+  function clearedKey(accountId, entryId) { return accountId + "|" + entryId; }
+  function isCleared(accountId, entryId) { var r = state.cleared[clearedKey(accountId, entryId)]; return !!(r && r.c); }
+  function setCleared(accountId, entryId, on) {
+    state.cleared[clearedKey(accountId, entryId)] = { c: on ? 1 : 0, u: nowMs() };
+    persist();
+  }
+  function toggleCleared(accountId, entryId) { setCleared(accountId, entryId, !isCleared(accountId, entryId)); }
+  // Balance of the account counting only cleared entries — compare to a statement.
+  function clearedBalance(journal, account) {
+    var bal = 0;
+    journal.forEach(function (e) {
+      if (!isCleared(account.id, e.id)) return;
+      e.lines.forEach(function (l) { if (l.accountId === account.id) bal += lineDelta(account.type, l); });
+    });
+    return round2(bal);
+  }
+
   // ---- Opening balances (editable after creation) ----
   function findOpeningEntry(accountId) {
     return state.journal.find(function (e) {
@@ -606,7 +626,7 @@
   // ---- JSON backup / restore ----
   function exportData() {
     return { app: "finance-desk", version: DATA_VERSION, accounts: state.accounts, journal: state.journal,
-      budgets: state.budgets, recurring: state.recurring, tombstones: state.tombstones, meta: state.meta };
+      budgets: state.budgets, recurring: state.recurring, cleared: state.cleared, tombstones: state.tombstones, meta: state.meta };
   }
   function importData(obj) {
     if (!obj || !Array.isArray(obj.accounts) || !Array.isArray(obj.journal)) {
@@ -616,6 +636,7 @@
     state.journal = obj.journal;
     state.budgets = obj.budgets && typeof obj.budgets === "object" ? obj.budgets : {};
     state.recurring = Array.isArray(obj.recurring) ? obj.recurring : [];
+    state.cleared = obj.cleared && typeof obj.cleared === "object" ? obj.cleared : {};
     state.tombstones = normTombstones(obj.tombstones);
     state.meta = obj.meta && typeof obj.meta === "object" ? obj.meta : { budgetsUpdatedAt: 0 };
     persist();
@@ -644,8 +665,12 @@
     var a = mergeCollection(local.accounts, remote.accounts, lt.accounts, rt.accounts);
     var rec = mergeCollection(local.recurring, remote.recurring, lt.recurring, rt.recurring);
     var lb = (local.meta && local.meta.budgetsUpdatedAt) || 0, rb = (remote.meta && remote.meta.budgetsUpdatedAt) || 0;
+    // cleared flags: per key, the more recent (u) wins.
+    var cleared = {}; [local.cleared || {}, remote.cleared || {}].forEach(function (src) {
+      Object.keys(src).forEach(function (k) { var v = src[k]; if (!cleared[k] || (v.u || 0) >= (cleared[k].u || 0)) cleared[k] = v; });
+    });
     return {
-      accounts: a.records, journal: j.records, recurring: rec.records,
+      accounts: a.records, journal: j.records, recurring: rec.records, cleared: cleared,
       budgets: (rb > lb ? remote.budgets : local.budgets) || {},
       tombstones: { journal: j.tombstones, accounts: a.tombstones, recurring: rec.tombstones },
       meta: { budgetsUpdatedAt: Math.max(lb, rb) },
@@ -688,11 +713,13 @@
       var m = loadKey(KEYS.meta, null) || {};
       state.tombstones = normTombstones(m.tombstones);
       state.meta = m.meta || { budgetsUpdatedAt: 0 };
+      state.cleared = m.cleared || {};
     } else {
       state.accounts = seedAccounts();
       state.journal = [];
       state.budgets = {};
       state.recurring = [];
+      state.cleared = {};
       state.tombstones = { journal: {}, accounts: {}, recurring: {} };
       state.meta = { budgetsUpdatedAt: 0 };
       migrateFromFintrack();
@@ -722,6 +749,8 @@
     // recurring
     addRecurring: addRecurring, updateRecurring: updateRecurring, setRecurringActive: setRecurringActive,
     deleteRecurring: deleteRecurring, postDueRecurring: postDueRecurring, nextDueDate: nextDueDate,
+    // reconciliation
+    isCleared: isCleared, setCleared: setCleared, toggleCleared: toggleCleared, clearedBalance: clearedBalance,
     // vault / persistence / sync
     snapshot: snapshot, hydrate: hydrate, isEncrypted: isEncrypted, onChange: onChange, merge: merge,
     // backup

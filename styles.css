@@ -191,7 +191,14 @@ input:focus, select:focus { outline: none; border-color: var(--primary); box-sha
 .register-head h2 { margin: 0; }
 .reg-balance { font-weight: 700; }
 .reg-list { list-style: none; margin: 0; padding: 0; }
-.reg-item { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; padding: 11px 4px; border-bottom: 1px solid var(--border); cursor: pointer; align-items: center; }
+.reg-item { display: grid; grid-template-columns: auto 1fr auto auto; gap: 12px; padding: 11px 4px; border-bottom: 1px solid var(--border); cursor: pointer; align-items: center; }
+.reg-clear { border: none; background: transparent; color: var(--border); font-size: 1rem; cursor: pointer; padding: 2px 4px; line-height: 1; }
+.reg-clear.on { color: var(--income); }
+.reg-list:not(.reconciling) .reg-clear { color: var(--border); }
+.reg-list:not(.reconciling) .reg-clear.on { color: var(--income); }
+.reconcile-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+.reconcile-nums { display: flex; gap: 16px; align-items: center; font-size: 0.9rem; flex-wrap: wrap; }
+.reconcile-nums strong { font-variant-numeric: tabular-nums; }
 .reg-item:last-child { border-bottom: none; }
 .reg-item:hover { background: var(--surface-2); }
 .reg-desc { font-weight: 600; }
