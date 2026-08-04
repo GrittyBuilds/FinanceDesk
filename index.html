@@ -20,6 +20,7 @@
         <a class="nav-link" data-view="reports" href="#reports"><span class="nav-ico">📈</span> Reports</a>
         <a class="nav-link" data-view="accounts" href="#accounts"><span class="nav-ico">🏦</span> Accounts</a>
         <a class="nav-link" data-view="budgets" href="#budgets"><span class="nav-ico">🎯</span> Budgets</a>
+        <a class="nav-link" data-view="settings" href="#settings"><span class="nav-ico">⚙️</span> Settings</a>
       </nav>
       <div class="sidebar-foot">
         <button id="theme-toggle" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">🌙</button>
@@ -31,6 +32,7 @@
       <header class="topbar">
         <button id="menu-theme" class="icon-btn mobile-only" title="Toggle theme" aria-label="Toggle theme">🌙</button>
         <h1 id="page-title">Dashboard</h1>
+        <a id="settings-btn" class="icon-btn mobile-only" href="#settings" title="Settings" aria-label="Settings">⚙️</a>
         <button id="new-tx-btn" class="btn btn-primary btn-new">+ New</button>
       </header>
 
@@ -40,6 +42,7 @@
         <section class="view" id="view-reports" hidden></section>
         <section class="view" id="view-accounts" hidden></section>
         <section class="view" id="view-budgets" hidden></section>
+        <section class="view" id="view-settings" hidden></section>
       </main>
     </div>
 
@@ -88,10 +91,22 @@
         </label>
       </div>
 
-      <label class="field">
+      <label class="field" id="tx-primary-field">
         <span id="tx-primary-label">Category</span>
         <select id="tx-primary"></select>
       </label>
+
+      <div class="field" id="tx-split-field" hidden>
+        <span>Split across categories</span>
+        <div id="tx-splits"></div>
+        <div class="split-foot">
+          <button type="button" id="tx-add-split" class="btn btn-ghost btn-sm">+ Add category</button>
+          <span id="tx-split-total" class="split-total"></span>
+        </div>
+      </div>
+
+      <button type="button" id="tx-split-toggle" class="linklike">Split into multiple categories</button>
+
       <label class="field">
         <span id="tx-secondary-label">Paid from</span>
         <select id="tx-secondary"></select>
@@ -136,6 +151,11 @@
           <option value="expense">Expense category</option>
           <option value="equity">Equity</option>
         </select>
+      </label>
+
+      <label class="field" id="acct-parent-field">
+        <span>Subcategory of <span class="muted">(optional)</span></span>
+        <select id="acct-parent"><option value="">— Top level —</option></select>
       </label>
 
       <div id="acct-opening-wrap" class="field-row">
