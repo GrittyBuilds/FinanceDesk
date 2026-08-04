@@ -418,14 +418,133 @@
         '<div class="settings-row"><div><div class="s-label">Reset to sample chart of accounts</div><div class="s-desc">Deletes all data and restarts with the default accounts.</div></div>' +
           '<div class="settings-actions"><button class="btn btn-danger btn-sm" id="data-reset">Reset</button></div></div>' +
       "</div>" +
-      '<div class="card"><h2>Security &amp; Sync <span class="badge-soon">Coming next</span></h2>' +
-        '<div class="settings-row"><div><div class="s-label">PIN lock &amp; encryption</div><div class="s-desc">Lock the app behind a PIN and encrypt your data at rest.</div></div></div>' +
-        '<div class="settings-row"><div><div class="s-label">Self-hosted sync (personal &amp; shared)</div><div class="s-desc">Sync across your devices and share a family ledger via your own server.</div></div></div>' +
-      "</div>";
+      '<div class="card"><h2>Security</h2><div id="security-body"></div></div>' +
+      '<div class="card"><h2>Sync</h2><p class="section-hint">Sync across your devices and share a family ledger via your own server. See <code>server/README.md</code> to run it.</p><div id="sync-body"></div></div>';
     $("#json-export").addEventListener("click", exportJSON);
     $("#json-import").addEventListener("click", function () { $("#json-input").click(); });
     $("#json-input").addEventListener("change", handleJSONImport);
     $("#data-reset").addEventListener("click", resetData);
+    renderSecurity();
+    renderSync();
+  }
+
+  // ----- Security (PIN + encryption) -----
+  function renderSecurity() {
+    var body = $("#security-body");
+    if (!window.FDVault || !FDVault.supported()) { body.innerHTML = '<p class="s-desc">Encryption isn\'t available in this browser.</p>'; return; }
+    if (!FD.isEncrypted()) {
+      body.innerHTML = '<div class="settings-row"><div><div class="s-label">PIN lock &amp; encryption</div><div class="s-desc">Lock the app and encrypt your data at rest on this device (AES-GCM).</div></div>' +
+        '<div class="settings-actions"><button class="btn btn-primary btn-sm" id="pin-setup">Set up PIN</button></div></div>';
+      $("#pin-setup").addEventListener("click", function () { openPinDialog("setup"); });
+    } else {
+      body.innerHTML = '<div class="settings-row"><div><div class="s-label">PIN lock is on</div><div class="s-desc">Your data is encrypted on this device.</div></div>' +
+        '<div class="settings-actions"><button class="btn btn-ghost btn-sm" id="pin-change">Change PIN</button><button class="btn btn-ghost btn-sm" id="pin-lock">Lock now</button><button class="btn btn-danger btn-sm" id="pin-remove">Remove</button></div></div>';
+      $("#pin-change").addEventListener("click", function () { openPinDialog("change"); });
+      $("#pin-lock").addEventListener("click", function () { FDVault.lock(); location.reload(); });
+      $("#pin-remove").addEventListener("click", removePin);
+    }
+  }
+  var pinMode = "setup";
+  function openPinDialog(mode) {
+    pinMode = mode;
+    $("#pin-dialog-title").textContent = mode === "change" ? "Change PIN" : "Set a PIN";
+    $("#pin-new").value = ""; $("#pin-confirm").value = ""; $("#pin-error").hidden = true;
+    $("#pin-dialog").showModal();
+    setTimeout(function () { $("#pin-new").focus(); }, 30);
+  }
+  function submitPin(ev) {
+    ev.preventDefault();
+    var a = $("#pin-new").value, b = $("#pin-confirm").value, err = $("#pin-error");
+    if (a.length < 4) { err.textContent = "PIN must be at least 4 characters."; err.hidden = false; return; }
+    if (a !== b) { err.textContent = "PINs don't match."; err.hidden = false; return; }
+    var op = pinMode === "change" ? FDVault.changePin(a, FD.snapshot()) : FDVault.enable(a, FD.snapshot());
+    op.then(function () { $("#pin-dialog").close(); renderSecurity(); })
+      .catch(function (e) { err.textContent = e.message || "Could not set PIN."; err.hidden = false; });
+  }
+  function removePin() {
+    if (!confirm("Remove the PIN and stop encrypting data on this device?")) return;
+    FDVault.disable().then(function () { FD.persist(); renderSecurity(); });
+  }
+
+  // ----- Sync -----
+  function syncNote(msg, cls) { var n = $("#sync-note"); if (n) { n.textContent = msg || ""; n.className = "sync-note" + (cls ? " " + cls : ""); } }
+  function renderSync() {
+    var body = $("#sync-body"); if (!body) return;
+    var cfg = FDSync.config();
+    var html = '<div class="settings-row"><div><div class="s-label">Server URL</div><div class="s-desc">Your self-hosted sync server.</div></div>' +
+      '<div class="settings-actions sync-inline"><input id="sync-url" class="sync-url" placeholder="http://localhost:4000" value="' + escapeHTML(cfg.url || "") + '" /><button class="btn btn-ghost btn-sm" id="sync-connect">Connect</button></div></div>' +
+      '<div id="sync-note" class="sync-note"></div>';
+    if (!FDSync.isLoggedIn()) {
+      html += '<div class="settings-row"><div><div class="s-label">Account</div><div class="s-desc">Register once, then log in on each device.</div></div>' +
+        '<div class="settings-actions sync-inline"><input id="sync-email" placeholder="email" style="width:170px" /><input id="sync-pass" type="password" placeholder="password" style="width:140px" />' +
+        '<button class="btn btn-ghost btn-sm" id="sync-login">Log in</button><button class="btn btn-primary btn-sm" id="sync-register">Register</button></div></div>';
+    } else {
+      html += '<div class="settings-row"><div><div class="s-label">Signed in</div><div class="s-desc">' + escapeHTML(cfg.email || "") + '</div></div>' +
+        '<div class="settings-actions"><button class="btn btn-ghost btn-sm" id="sync-logout">Sign out</button></div></div><div id="sync-ws"></div>';
+    }
+    body.innerHTML = html;
+    $("#sync-connect").addEventListener("click", function () {
+      FDSync.setServer($("#sync-url").value.trim());
+      syncNote("Connecting…");
+      FDSync.health().then(function (h) { syncNote("Connected — " + h.users + " user(s), " + h.workspaces + " workspace(s).", "ok"); })
+        .catch(function () { syncNote("Could not reach the server. Check the URL and that it's running.", "bad"); });
+    });
+    if (!FDSync.isLoggedIn()) {
+      var creds = function () { return { email: $("#sync-email").value.trim(), pass: $("#sync-pass").value }; };
+      $("#sync-register").addEventListener("click", function () { var c = creds(); FDSync.setServer($("#sync-url").value.trim()); FDSync.register(c.email, c.pass).then(renderSync).catch(function (e) { syncNote(e.message, "bad"); }); });
+      $("#sync-login").addEventListener("click", function () { var c = creds(); FDSync.setServer($("#sync-url").value.trim()); FDSync.login(c.email, c.pass).then(renderSync).catch(function (e) { syncNote(e.message, "bad"); }); });
+    } else {
+      $("#sync-logout").addEventListener("click", function () { FDSync.logout(); renderSync(); });
+      loadWorkspaces();
+    }
+  }
+  function loadWorkspaces() {
+    var wrap = $("#sync-ws"); if (!wrap) return;
+    wrap.innerHTML = '<p class="s-desc">Loading workspaces…</p>';
+    FDSync.listWorkspaces().then(function (list) {
+      var active = FDSync.activeWorkspace() || (list[0] && list[0].id);
+      var opts = list.map(function (w) { return '<option value="' + w.id + '" data-kind="' + w.kind + '"' + (w.id === active ? " selected" : "") + ">" + escapeHTML(w.name) + " (" + w.kind + ")</option>"; }).join("");
+      wrap.innerHTML =
+        '<div class="settings-row"><div><div class="s-label">Active workspace</div><div class="s-desc">Push sends this device\'s data; Pull replaces it with the server copy.</div></div>' +
+          '<div class="settings-actions sync-inline"><select id="ws-select">' + opts + '</select>' +
+          '<button class="btn btn-primary btn-sm" id="ws-push">Push</button><button class="btn btn-ghost btn-sm" id="ws-pull">Pull</button>' +
+          '<button class="btn btn-ghost btn-sm" id="ws-invite">Invite</button></div></div>' +
+        '<div id="ws-note" class="sync-note"></div>' +
+        '<div class="settings-row"><div><div class="s-label">Create shared workspace</div><div class="s-desc">A family ledger everyone can access.</div></div>' +
+          '<div class="settings-actions sync-inline"><input id="ws-new-name" placeholder="Household" style="width:150px" /><button class="btn btn-ghost btn-sm" id="ws-create">Create</button></div></div>' +
+        '<div class="settings-row"><div><div class="s-label">Join with invite code</div><div class="s-desc">Enter a code shared with you.</div></div>' +
+          '<div class="settings-actions sync-inline"><input id="ws-code" placeholder="CODE" style="width:130px" /><button class="btn btn-ghost btn-sm" id="ws-join">Join</button></div></div>';
+      function selected() { var s = $("#ws-select"); return { id: s.value, kind: s.selectedOptions[0].dataset.kind }; }
+      function wsNote(m, cls) { var n = $("#ws-note"); n.textContent = m || ""; n.className = "sync-note" + (cls ? " " + cls : ""); }
+      $("#ws-select").addEventListener("change", function () { FDSync.selectWorkspace(this.value); });
+      FDSync.selectWorkspace(active);
+      $("#ws-push").addEventListener("click", function () {
+        var w = selected(); if (!confirm("Push this device's data to \"" + $("#ws-select").selectedOptions[0].textContent + "\"?")) return;
+        FDSync.push(w.id, FD.exportData()).then(function (r) { wsNote("Pushed. Server is now at version " + r.version + ".", "ok"); })
+          .catch(function (e) { wsNote(e.status === 409 ? "Server has newer data — Pull first, then Push." : e.message, "bad"); });
+      });
+      $("#ws-pull").addEventListener("click", function () {
+        var w = selected(); if (!confirm("Replace this device's data with the server copy? Local changes will be lost.")) return;
+        FDSync.pull(w.id).then(function (r) {
+          FD.importData(r.data); acctView.id = null;
+          // Other views re-render on navigation; don't refresh Settings (it would wipe this note).
+          wsNote("Pulled version " + r.version + ". Data updated on this device.", "ok");
+        }).catch(function (e) { wsNote(e.message, "bad"); });
+      });
+      $("#ws-invite").addEventListener("click", function () {
+        var w = selected(); if (w.kind !== "shared") { wsNote("Only shared workspaces can be invited to. Create one first.", "bad"); return; }
+        FDSync.invite(w.id).then(function (r) { wsNote("Invite code: ", "ok"); $("#ws-note").innerHTML = 'Invite code: <span class="code-pill">' + escapeHTML(r.code) + "</span> — share it with family."; })
+          .catch(function (e) { wsNote(e.message, "bad"); });
+      });
+      $("#ws-create").addEventListener("click", function () {
+        var name = $("#ws-new-name").value.trim() || "Household";
+        FDSync.createWorkspace(name).then(function (w) { FDSync.selectWorkspace(w.id); loadWorkspaces(); }).catch(function (e) { wsNote(e.message, "bad"); });
+      });
+      $("#ws-join").addEventListener("click", function () {
+        var code = $("#ws-code").value.trim(); if (!code) return;
+        FDSync.join(code).then(function (w) { FDSync.selectWorkspace(w.id); loadWorkspaces(); }).catch(function (e) { wsNote(e.message, "bad"); });
+      });
+    }).catch(function (e) { wrap.innerHTML = '<p class="sync-note bad">Could not load workspaces: ' + escapeHTML(e.message) + "</p>"; });
   }
   function download(filename, text, mime) {
     var blob = new Blob([text], { type: mime }), url = URL.createObjectURL(blob), a = document.createElement("a");
@@ -585,6 +704,11 @@
       typeSel.value = a.type; typeSel.disabled = true;
       updateAccountDialogForType();
       populateParentOptions(a.type, a.parentId || "", editId);
+      if (a.type === "asset" || a.type === "liability") {
+        var ob = FD.getOpeningBalance(editId);
+        $("#acct-opening").value = ob ? ob.amount : "";
+        $("#acct-opening-date").value = ob ? ob.date : todayISO();
+      }
       // A parent (has children) cannot itself become a child.
       $("#acct-parent-field").style.display = (FD.hasChildren(FD.state.accounts, editId)) ? "none" : $("#acct-parent-field").style.display;
       var used = FD.accountHasEntries(editId) || FD.hasChildren(FD.state.accounts, editId);
@@ -602,8 +726,15 @@
     ev.preventDefault();
     var name = $("#acct-name").value.trim(); if (!name) return;
     var editId = $("#acct-edit-id").value, parentId = $("#acct-parent-field").style.display === "none" ? "" : $("#acct-parent").value;
-    if (editId) FD.updateAccount(editId, { name: name, icon: $("#acct-icon").value.trim(), parentId: parentId });
-    else FD.addAccount({ name: name, type: $("#acct-type").value, icon: $("#acct-icon").value.trim(), parentId: parentId || undefined, opening: parseFloat($("#acct-opening").value) || 0, openingDate: $("#acct-opening-date").value || todayISO() });
+    if (editId) {
+      FD.updateAccount(editId, { name: name, icon: $("#acct-icon").value.trim(), parentId: parentId });
+      var a = FD.getAccount(editId);
+      if (a && (a.type === "asset" || a.type === "liability")) {
+        FD.setOpeningBalance(editId, parseFloat($("#acct-opening").value) || 0, $("#acct-opening-date").value || todayISO());
+      }
+    } else {
+      FD.addAccount({ name: name, type: $("#acct-type").value, icon: $("#acct-icon").value.trim(), parentId: parentId || undefined, opening: parseFloat($("#acct-opening").value) || 0, openingDate: $("#acct-opening-date").value || todayISO() });
+    }
     accountDialog.close(); refresh();
   }
   function deleteAccountAction() {
@@ -714,10 +845,23 @@
     $("#account-form").addEventListener("submit", submitAccount);
     $("#acct-delete").addEventListener("click", deleteAccountAction);
     $("#acct-type").addEventListener("change", updateAccountDialogForType);
+    $("#pin-form").addEventListener("submit", submitPin);
     $all("[data-close]").forEach(function (btn) { btn.addEventListener("click", function () { btn.closest("dialog").close(); }); });
   }
-  function init() {
-    FD.init(); initTheme(); bindDialogs();
+
+  // ----- Lock screen -----
+  function showLock() { $("#lock-screen").hidden = false; setTimeout(function () { $("#lock-pin").focus(); }, 30); }
+  function hideLock() { $("#lock-screen").hidden = true; $("#lock-pin").value = ""; }
+  function doUnlock() {
+    var pin = $("#lock-pin").value, err = $("#lock-error"); err.hidden = true;
+    FDVault.unlock(pin).then(function (data) { FD.hydrate(data); hideLock(); boot(); })
+      .catch(function (e) { err.textContent = e.message || "Incorrect PIN."; err.hidden = false; $("#lock-pin").select(); });
+  }
+
+  var booted = false;
+  function boot() {
+    if (booted) return; booted = true;
+    bindDialogs();
     $("#new-tx-btn").addEventListener("click", function () { openTxDialog(null); });
     $("#new-tx-tab").addEventListener("click", function () { openTxDialog(null); });
     $("#theme-toggle").addEventListener("click", toggleTheme);
@@ -725,6 +869,12 @@
     window.addEventListener("hashchange", navigate);
     if (!location.hash) location.hash = "#dashboard";
     navigate();
+  }
+  function init() {
+    initTheme();
+    $("#lock-form").addEventListener("submit", function (e) { e.preventDefault(); doUnlock(); });
+    if (window.FDVault && FD.isEncrypted()) { showLock(); }  // wait for PIN before loading data
+    else { FD.init(); boot(); }
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init); else init();
 })();
