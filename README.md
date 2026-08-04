@@ -12,22 +12,29 @@ views) and **mobile** (bottom tab bar with a quick-add button, stacked layouts).
 
 - **Double-entry engine** — every transaction posts balanced debits and credits,
   so reports tie out the way real bookkeeping does.
-- **Chart of Accounts** — accounts grouped into Assets, Liabilities, Equity,
-  Income, and Expenses, each with a live balance. Add your own bank accounts,
-  credit cards, loans, income sources, and expense categories.
+- **Chart of Accounts with subcategories** — accounts grouped into Assets,
+  Liabilities, Equity, Income, and Expenses, each with a live balance. Nest
+  **subcategories** under a parent (e.g. Groceries → Food, Household); parents
+  roll up their children in balances and reports.
 - **Friendly entry** — add an **Expense**, **Income**, or **Transfer** through a
   simple form; the app builds the underlying journal entry for you.
+- **Split transactions** — divide one transaction across several
+  categories/subcategories (e.g. a store run that's part Food, part Household).
+- **Account registers** — drill into any account to see its transactions with a
+  running balance.
 - **Reports**
   - **Profit & Loss** for this month, last month, this/last year, all time, or a
-    custom date range.
+    custom date range — grouped by category with subcategory breakdowns.
+  - **Cash Flow** — change in cash & bank over a period (operating, financing,
+    equity), reconciled to your account balances.
   - **Balance Sheet** as of any date, with a live "in balance" check
     (Assets = Liabilities + Equity).
 - **Dashboard** — net worth, income/expense/net for the month, a spending donut,
   and recent activity.
-- **Monthly budgets** — per-category limits with progress bars and over-limit
-  warnings.
-- **CSV export / import** — back up or bring in records
-  (`date, type, description, amount, category, account`).
+- **Monthly budgets** — per-category and per-subcategory limits with progress
+  bars and over-limit warnings.
+- **Backup & restore** — **CSV** export/import for transactions, and full **JSON**
+  backup/restore (accounts + transactions + budgets) in **Settings**.
 - **Light / dark theme**, responsive, and **zero dependencies** — plain HTML,
   CSS, and JavaScript.
 
@@ -59,10 +66,16 @@ The friendly forms map to journal entries like this:
 
 - **Expense** — debit an expense category, credit the account you paid from
   (an asset like Checking, or a liability like a Credit Card).
+- **Split expense** — debit several expense categories, credit one payment
+  account for the total.
 - **Income** — debit the account you deposited into, credit an income category.
 - **Transfer** — debit the destination account, credit the source account.
 - **Opening balances** — when you create an asset/liability account with a
   starting balance, the offset posts to **Opening Balance Equity**.
+
+**Subcategories** are accounts with a `parentId` pointing at a same-type parent
+(one level deep). You post to whichever level you like; parents roll up their
+children in the Accounts view, budgets, and reports.
 
 Because every entry balances, the Balance Sheet identity always holds:
 
@@ -96,8 +109,9 @@ Nothing is sent anywhere. Clearing your browser data removes it, so use
 
 ## Roadmap ideas
 
-- Per-account registers with running balances and reconciliation
-- Cash-flow statement and month-over-month comparisons
-- JSON full backup/restore (accounts + journal + budgets)
-- Split transactions (more than two lines) in the entry form
+- **PIN lock with at-rest encryption** (AES-GCM derived from your PIN) — *next up*
+- **Self-hosted sync server** (Node + database) for multi-device and shared
+  family books, with personal and shared workspaces — *next up*
+- Reconciliation workflow for account registers
+- Month-over-month and year-over-year report comparisons
 - Recurring transactions
