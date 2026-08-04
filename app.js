@@ -480,7 +480,8 @@
         '<button class="btn btn-ghost btn-sm" id="sync-login">Log in</button><button class="btn btn-primary btn-sm" id="sync-register">Register</button></div></div>';
     } else {
       html += '<div class="settings-row"><div><div class="s-label">Signed in</div><div class="s-desc">' + escapeHTML(cfg.email || "") + '</div></div>' +
-        '<div class="settings-actions"><button class="btn btn-ghost btn-sm" id="sync-logout">Sign out</button></div></div><div id="sync-ws"></div>';
+        '<div class="settings-actions"><button class="btn btn-ghost btn-sm" id="sync-logout">Sign out</button></div></div>' +
+        '<div id="sync-e2ee"></div><div id="sync-ws"></div>';
     }
     body.innerHTML = html;
     $("#sync-connect").addEventListener("click", function () {
@@ -495,8 +496,44 @@
       $("#sync-login").addEventListener("click", function () { var c = creds(); FDSync.setServer($("#sync-url").value.trim()); FDSync.login(c.email, c.pass).then(renderSync).catch(function (e) { syncNote(e.message, "bad"); }); });
     } else {
       $("#sync-logout").addEventListener("click", function () { FDSync.logout(); renderSync(); });
+      renderE2EE();
       loadWorkspaces();
     }
+  }
+  function renderE2EE() {
+    var wrap = $("#sync-e2ee"); if (!wrap) return;
+    if (!window.FDVault || !FDVault.supported()) { wrap.innerHTML = ""; return; }
+    if (FDSync.isE2EE()) {
+      wrap.innerHTML = '<div class="settings-row"><div><div class="s-label">End-to-end encryption <span class="ws-badge" style="color:var(--income);border-color:var(--income)">on</span></div>' +
+        '<div class="s-desc">Data is encrypted with your passphrase before syncing. The server can\'t read it.</div></div>' +
+        '<div class="settings-actions"><button class="btn btn-ghost btn-sm" id="e2ee-change">Change passphrase</button><button class="btn btn-danger btn-sm" id="e2ee-off">Turn off</button></div></div>';
+      $("#e2ee-change").addEventListener("click", function () { openE2EEDialog("change"); });
+      $("#e2ee-off").addEventListener("click", function () {
+        if (!confirm("Turn off end-to-end encryption? Future pushes will store data unencrypted on the server.")) return;
+        FDSync.disableE2EE(); renderE2EE();
+      });
+    } else {
+      wrap.innerHTML = '<div class="settings-row"><div><div class="s-label">End-to-end encryption</div>' +
+        '<div class="s-desc">Encrypt your data with a passphrase before it syncs, so even your server can\'t read it.</div></div>' +
+        '<div class="settings-actions"><button class="btn btn-primary btn-sm" id="e2ee-on">Enable</button></div></div>';
+      $("#e2ee-on").addEventListener("click", function () { openE2EEDialog("enable"); });
+    }
+  }
+  function openE2EEDialog(mode) {
+    $("#e2ee-title").textContent = mode === "change" ? "Change sync passphrase" : "Enable end-to-end encryption";
+    $("#e2ee-pass").value = ""; $("#e2ee-confirm").value = ""; $("#e2ee-error").hidden = true;
+    $("#e2ee-dialog").showModal();
+    setTimeout(function () { $("#e2ee-pass").focus(); }, 30);
+  }
+  function submitE2EE(ev) {
+    ev.preventDefault();
+    var a = $("#e2ee-pass").value, b = $("#e2ee-confirm").value, err = $("#e2ee-error");
+    if (a.length < 6) { err.textContent = "Passphrase must be at least 6 characters."; err.hidden = false; return; }
+    if (a !== b) { err.textContent = "Passphrases don't match."; err.hidden = false; return; }
+    FDSync.setE2EE(a);
+    $("#e2ee-dialog").close();
+    renderE2EE();
+    var note = $("#ws-note"); if (note) { note.textContent = "Encryption on. Push to upload an encrypted copy; other devices need this passphrase to pull."; note.className = "sync-note ok"; }
   }
   function loadWorkspaces() {
     var wrap = $("#sync-ws"); if (!wrap) return;
@@ -846,6 +883,7 @@
     $("#acct-delete").addEventListener("click", deleteAccountAction);
     $("#acct-type").addEventListener("change", updateAccountDialogForType);
     $("#pin-form").addEventListener("submit", submitPin);
+    $("#e2ee-form").addEventListener("submit", submitE2EE);
     $all("[data-close]").forEach(function (btn) { btn.addEventListener("click", function () { btn.closest("dialog").close(); }); });
   }
 

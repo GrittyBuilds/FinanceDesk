@@ -121,6 +121,19 @@
 
     // Lock in place (data stays encrypted; requires unlock to read again).
     lock: function () { mem.key = null; mem.salt = null; mem.active = false; },
+
+    // ---- Passphrase-based encryption (used for end-to-end encrypted sync) ----
+    // Independent of the PIN vault: derive a key from an arbitrary passphrase and
+    // a fresh random salt, and return a self-contained envelope {v,salt,iv,ct}.
+    encryptData: function (passphrase, obj) {
+      var salt = randBytes(16);
+      return deriveKey(passphrase, salt).then(function (key) { return encryptWith(key, salt, obj); });
+    },
+    // Decrypt an envelope produced by encryptData, given the same passphrase.
+    decryptData: function (passphrase, envelope) {
+      var saltBytes = b64ToBytes(envelope.salt);
+      return deriveKey(passphrase, saltBytes).then(function (key) { return decryptWith(key, envelope); });
+    },
   };
 
   root.FDVault = Vault;

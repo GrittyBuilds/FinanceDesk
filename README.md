@@ -117,8 +117,18 @@ Sync is optional and runs on a small server you host yourself — see
 4. **Push** sends this device's data; **Pull** replaces it with the server copy.
    Concurrent edits are guarded with a version check (pull before you push).
 
-Note: synced data is stored **unencrypted on your server** (you control it). The
-PIN encryption protects the local device copy, not the server copy.
+### End-to-end encryption (optional, recommended)
+
+In **Settings → Sync → End-to-end encryption**, set a **sync passphrase**. When
+on, your data is encrypted (AES-GCM, key derived from the passphrase via PBKDF2)
+**before it leaves the device**, and the server only ever stores ciphertext — it
+can't read your books. Every device and family member sharing a workspace must
+enter the **same passphrase**; a device without it is told the data is encrypted
+and can't pull. If the passphrase is lost, encrypted sync data can't be
+recovered, so keep a JSON backup.
+
+Without E2E on, synced data is stored **unencrypted on your server** (which you
+control). Either way, the PIN feature separately protects the local device copy.
 
 ## Project structure
 
@@ -153,4 +163,4 @@ Nothing is sent anywhere. Clearing your browser data removes it, so use
 - Reconciliation workflow for account registers
 - Month-over-month and year-over-year report comparisons
 - Recurring transactions
-- End-to-end encryption of synced data (so the server can't read it)
+- Per-record sync merge (instead of whole-dataset last-write-wins)

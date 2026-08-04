@@ -67,14 +67,32 @@
 
     selectWorkspace: function (wsId) { cfg.workspaceId = wsId; save(cfg); },
 
+    // ---- End-to-end encryption (server never sees plaintext or passphrase) ----
+    isE2EE: function () { return !!(cfg.e2ee && cfg.e2ee.enabled && cfg.e2ee.passphrase); },
+    setE2EE: function (passphrase) { cfg.e2ee = { enabled: true, passphrase: passphrase }; save(cfg); },
+    disableE2EE: function () { cfg.e2ee = { enabled: false }; save(cfg); },
+
     pull: function (wsId) {
       return api("GET", "/api/workspaces/" + wsId + "/data", null, true).then(function (r) {
-        cfg.versions[wsId] = r.version; save(cfg); return r; // { version, data, updatedAt }
+        cfg.versions[wsId] = r.version; save(cfg);
+        var payload = r.data;
+        if (payload && payload.e2ee) {
+          if (!Sync.isE2EE()) throw new Error("This data is end-to-end encrypted. Turn on encryption with the passphrase on this device first.");
+          return root.FDVault.decryptData(cfg.e2ee.passphrase, payload)
+            .then(function (plain) { return { version: r.version, data: plain, updatedAt: r.updatedAt }; })
+            .catch(function () { throw new Error("Could not decrypt — check your sync passphrase."); });
+        }
+        return r; // plaintext { version, data, updatedAt }
       });
     },
     push: function (wsId, data) {
-      return api("PUT", "/api/workspaces/" + wsId + "/data", { baseVersion: cfg.versions[wsId] || 0, data: data }, true)
-        .then(function (r) { cfg.versions[wsId] = r.version; save(cfg); return r; });
+      var prep = Sync.isE2EE()
+        ? root.FDVault.encryptData(cfg.e2ee.passphrase, data).then(function (env) { env.e2ee = 1; return env; })
+        : Promise.resolve(data);
+      return prep.then(function (payload) {
+        return api("PUT", "/api/workspaces/" + wsId + "/data", { baseVersion: cfg.versions[wsId] || 0, data: payload }, true)
+          .then(function (r) { cfg.versions[wsId] = r.version; save(cfg); return r; });
+      });
     },
   };
 

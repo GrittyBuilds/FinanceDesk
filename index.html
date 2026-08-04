@@ -204,6 +204,18 @@
     </form>
   </dialog>
 
+  <!-- End-to-end sync encryption passphrase dialog -->
+  <dialog id="e2ee-dialog" class="dialog">
+    <form id="e2ee-form" method="dialog" class="dialog-form" autocomplete="off">
+      <div class="dialog-head"><h2 id="e2ee-title">End-to-end encryption</h2><button type="button" class="icon-btn dialog-close" data-close aria-label="Close">✕</button></div>
+      <p class="dialog-hint">Your data is encrypted with this passphrase <em>before</em> it's synced, so your server can't read it. Every device and family member sharing the books needs the same passphrase. If it's lost, encrypted sync data can't be recovered.</p>
+      <label class="field"><span>Sync passphrase (at least 6 characters)</span><input type="password" id="e2ee-pass" autocomplete="new-password" /></label>
+      <label class="field"><span>Confirm passphrase</span><input type="password" id="e2ee-confirm" autocomplete="new-password" /></label>
+      <div id="e2ee-error" class="form-error" hidden></div>
+      <div class="dialog-actions"><span class="spacer"></span><button type="button" class="btn btn-ghost" data-close>Cancel</button><button type="submit" class="btn btn-primary">Save</button></div>
+    </form>
+  </dialog>
+
   <script src="store.js"></script>
   <script src="crypto.js"></script>
   <script src="sync.js"></script>

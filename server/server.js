@@ -220,7 +220,10 @@ function handleApi(req, res, uid, url, body) {
       var baseVersion = Number(body.baseVersion) || 0;
       if (baseVersion !== ws2.version) return send(res, 409, { error: "Out of date — pull the latest first.", version: ws2.version });
       if (!body.data || typeof body.data !== "object") return send(res, 400, { error: "Missing data." });
-      ws2.data = { accounts: body.data.accounts || [], journal: body.data.journal || [], budgets: body.data.budgets || {} };
+      // Store the payload opaquely: it may be a plaintext {accounts,journal,budgets}
+      // dataset OR an end-to-end-encrypted envelope {e2ee,salt,iv,ct}. The server
+      // treats it as an opaque blob and never needs to read inside it.
+      ws2.data = body.data;
       ws2.version += 1; ws2.updatedAt = Date.now(); saveDB();
       return send(res, 200, { version: ws2.version, updatedAt: ws2.updatedAt });
     }
