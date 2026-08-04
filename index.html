@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FinTrack — Personal Finance Tracker</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <span class="brand-mark">₣</span>
+      <h1>FinTrack</h1>
+    </div>
+    <button id="theme-toggle" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">🌙</button>
+  </header>
+
+  <main class="container">
+    <!-- Summary cards -->
+    <section class="summary" aria-label="Summary">
+      <div class="card summary-card">
+        <span class="summary-label">Balance</span>
+        <span id="balance" class="summary-value">$0.00</span>
+      </div>
+      <div class="card summary-card income">
+        <span class="summary-label">Income</span>
+        <span id="total-income" class="summary-value">$0.00</span>
+      </div>
+      <div class="card summary-card expense">
+        <span class="summary-label">Expenses</span>
+        <span id="total-expense" class="summary-value">$0.00</span>
+      </div>
+    </section>
+
+    <div class="grid">
+      <!-- Add transaction form -->
+      <section class="card">
+        <h2>Add Transaction</h2>
+        <form id="transaction-form" class="form" autocomplete="off">
+          <div class="type-toggle" role="radiogroup" aria-label="Transaction type">
+            <input type="radio" id="type-expense" name="type" value="expense" checked />
+            <label for="type-expense">Expense</label>
+            <input type="radio" id="type-income" name="type" value="income" />
+            <label for="type-income">Income</label>
+          </div>
+
+          <label class="field">
+            <span>Description</span>
+            <input type="text" id="description" placeholder="e.g. Groceries" required maxlength="80" />
+          </label>
+
+          <div class="field-row">
+            <label class="field">
+              <span>Amount</span>
+              <input type="number" id="amount" placeholder="0.00" step="0.01" min="0.01" required />
+            </label>
+            <label class="field">
+              <span>Date</span>
+              <input type="date" id="date" required />
+            </label>
+          </div>
+
+          <label class="field">
+            <span>Category</span>
+            <select id="category"></select>
+          </label>
+
+          <button type="submit" class="btn btn-primary">Add Transaction</button>
+        </form>
+      </section>
+
+      <!-- Category breakdown -->
+      <section class="card">
+        <h2>Spending by Category</h2>
+        <div id="chart-empty" class="empty-state">No expenses yet.</div>
+        <canvas id="chart" width="300" height="300" aria-label="Spending by category chart"></canvas>
+        <ul id="chart-legend" class="legend"></ul>
+      </section>
+    </div>
+
+    <!-- Transactions list -->
+    <section class="card">
+      <div class="list-header">
+        <h2>Transactions</h2>
+        <div class="filters">
+          <select id="filter-type" aria-label="Filter by type">
+            <option value="all">All types</option>
+            <option value="income">Income</option>
+            <option value="expense">Expense</option>
+          </select>
+          <select id="filter-category" aria-label="Filter by category">
+            <option value="all">All categories</option>
+          </select>
+        </div>
+      </div>
+      <ul id="transaction-list" class="transaction-list"></ul>
+      <div id="list-empty" class="empty-state">No transactions yet. Add one to get started.</div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
