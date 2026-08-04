@@ -103,7 +103,25 @@
     if (!hasStorage()) return;
     try { root.localStorage.setItem(key, JSON.stringify(value)); } catch (e) {}
   }
+  function snapshot() {
+    return { accounts: state.accounts, journal: state.journal, budgets: state.budgets };
+  }
+  // Load state from a decrypted object without writing plaintext to disk.
+  function hydrate(data) {
+    state.accounts = (data && data.accounts) || [];
+    state.journal = (data && data.journal) || [];
+    state.budgets = (data && data.budgets) || {};
+    return state;
+  }
+  function vaultActive() {
+    return !!(root.FDVault && root.FDVault.isActive && root.FDVault.isActive());
+  }
+  function isEncrypted() {
+    return !!(root.FDVault && root.FDVault.isEnabled && root.FDVault.isEnabled());
+  }
   function persist() {
+    // When a PIN vault is unlocked, save the encrypted blob instead of plaintext.
+    if (vaultActive()) { root.FDVault.save(snapshot()); return; }
     saveKey(KEYS.accounts, state.accounts);
     saveKey(KEYS.journal, state.journal);
     saveKey(KEYS.budgets, state.budgets);
@@ -380,6 +398,37 @@
     persist();
   }
 
+  // ---- Opening balances (editable after creation) ----
+  function findOpeningEntry(accountId) {
+    return state.journal.find(function (e) {
+      return e.kind === "opening" &&
+        e.lines.some(function (l) { return l.accountId === accountId; }) &&
+        e.lines.some(function (l) { return l.accountId === OPENING_EQUITY_ID; });
+    });
+  }
+  function getOpeningBalance(accountId) {
+    var e = findOpeningEntry(accountId); if (!e) return null;
+    var acc = getAccount(accountId); if (!acc) return null;
+    var line = e.lines.find(function (l) { return l.accountId === accountId; });
+    if (!line) return null;
+    var amt = acc.type === "asset" ? (Number(line.debit) || 0) : (Number(line.credit) || 0);
+    return { amount: round2(amt), date: e.date };
+  }
+  // Create, update, or clear an account's opening balance entry.
+  function setOpeningBalance(accountId, amount, date) {
+    var acc = getAccount(accountId);
+    if (!acc || (acc.type !== "asset" && acc.type !== "liability")) return;
+    amount = round2(Number(amount) || 0);
+    date = date || todayISO();
+    var existing = findOpeningEntry(accountId);
+    if (amount === 0) { if (existing) deleteEntry(existing.id); return; }
+    var lines = acc.type === "asset"
+      ? [{ accountId: accountId, debit: amount, credit: 0 }, { accountId: OPENING_EQUITY_ID, debit: 0, credit: amount }]
+      : [{ accountId: OPENING_EQUITY_ID, debit: amount, credit: 0 }, { accountId: accountId, debit: 0, credit: amount }];
+    if (existing) updateEntry(existing.id, { date: date, description: "Opening balance", kind: "opening", lines: lines });
+    else addEntry({ date: date, description: "Opening balance", kind: "opening", lines: lines });
+  }
+
   // ---- lookups ----
   function getAccountIn(accounts, id) {
     for (var i = 0; i < accounts.length; i++) if (accounts[i].id === id) return accounts[i];
@@ -513,6 +562,9 @@
     addEntry: addEntry, updateEntry: updateEntry, deleteEntry: deleteEntry,
     addAccount: addAccount, updateAccount: updateAccount, deleteAccount: deleteAccount,
     setArchived: setArchived, accountHasEntries: accountHasEntries, setBudget: setBudget,
+    getOpeningBalance: getOpeningBalance, setOpeningBalance: setOpeningBalance,
+    // vault / persistence
+    snapshot: snapshot, hydrate: hydrate, isEncrypted: isEncrypted,
     // backup
     exportData: exportData, importData: importData,
     // lookups
