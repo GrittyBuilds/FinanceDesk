@@ -225,9 +225,22 @@ sync.js      Client sync layer (pluggable backends: self-hosted server / Supabas
 app.js       UI layer: router, views, forms, charts, CSV
 server/      Self-hosted sync server (Node, zero dependencies)
 supabase/    setup.sql — tables, RLS, and functions for the Supabase backend
+brand/       Logo, wordmark, app icon, favicons (SVG + PNG)
+manifest.webmanifest   PWA manifest (installable app icon + name)
 ```
 
 `store.js` is DOM-free and can be loaded in Node for testing the engine.
+
+## Branding
+
+The app ships with the **Finance Desk** brand: a teal rounded-badge **app icon**
+(the "FD" monogram with the Signal Amber underline), a two-tone **wordmark**, and
+the brand palette (Ledger Teal `#0E7A6E`, Deep Teal `#0B5D54`, Ink Slate
+`#1F2A37`, Signal Amber `#F4B740`, Mint Tint `#E7F3F0`). The icon and wordmark
+appear in the sidebar and on the lock screen (the wordmark switches to a
+light-on-dark variant in dark mode), the primary accent is Ledger Teal, and the
+`brand/` icons wire up favicons, the iOS home-screen icon, and an installable PWA
+via `manifest.webmanifest`.
 
 ## Data & privacy
 

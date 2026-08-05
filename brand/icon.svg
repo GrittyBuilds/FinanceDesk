@@ -1,0 +1,17 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="badge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#12897B"/>
+      <stop offset="1" stop-color="#0B5D54"/>
+    </linearGradient></defs>
+  <rect x="24" y="24" width="464" height="464" rx="116" fill="url(#badge)"/>
+  <g transform="translate(0,-12)">
+    <g fill="none" stroke="#FFFFFF" stroke-width="46" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M150,168 V344"/>
+      <path d="M150,168 H236"/>
+      <path d="M150,256 H222"/>
+      <path d="M286,344 V168 C372,168 372,344 286,344"/>
+    </g>
+    <path d="M158,392 H354" fill="none" stroke="#F4B740" stroke-width="24" stroke-linecap="round"/>
+  </g>
+</svg>

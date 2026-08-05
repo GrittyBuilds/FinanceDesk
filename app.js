@@ -6,7 +6,7 @@
   var THEME_KEY = FD.KEYS.theme;
 
   var CHART_COLORS = [
-    "#2f6df6", "#e5484d", "#1fae7a", "#f5a623", "#9b59b6",
+    "#0E7A6E", "#F4B740", "#e5484d", "#1fae7a", "#9b59b6",
     "#00bcd4", "#ff6f91", "#8bc34a", "#795548", "#5c6bc0",
   ];
 
@@ -148,7 +148,7 @@
     var plotW = g.w - padL - padR, plotH = g.h - padT - padB;
     function X(i) { return padL + (months.length === 1 ? plotW / 2 : (i / (months.length - 1)) * plotW); }
     function Y(v) { return padT + plotH - ((v - lo) / (hi - lo)) * plotH; }
-    var grid = cssVar("--border", "#ddd"), muted = cssVar("--text-muted", "#888"), primary = cssVar("--primary", "#2f6df6");
+    var grid = cssVar("--border", "#ddd"), muted = cssVar("--text-muted", "#888"), primary = cssVar("--primary", "#0E7A6E");
     ctx.strokeStyle = grid; ctx.fillStyle = muted; ctx.font = "10px -apple-system, sans-serif"; ctx.textBaseline = "middle";
     [hi, (hi + lo) / 2, lo].forEach(function (v) { var y = Y(v); ctx.globalAlpha = 0.5; ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(g.w - padR, y); ctx.stroke(); ctx.globalAlpha = 1; ctx.textAlign = "right"; ctx.fillText(shortMoney(v), padL - 6, y); });
     // area + line

@@ -5,8 +5,9 @@
   --text: #1a2233;
   --text-muted: #6b7385;
   --border: #e4e8f0;
-  --primary: #2f6df6;
-  --primary-hover: #245ee0;
+  --primary: #0E7A6E;
+  --primary-hover: #0B5D54;
+  --accent: #F4B740;
   --income: #1fae7a;
   --expense: #e5484d;
   --transfer: #8a6dff;
@@ -23,8 +24,9 @@
   --text: #e7ebf3;
   --text-muted: #9098aa;
   --border: #2a3040;
-  --primary: #4c86ff;
-  --primary-hover: #6098ff;
+  --primary: #21A392;
+  --primary-hover: #2FB6A4;
+  --accent: #F4B740;
   --income: #33c98d;
   --expense: #f2686d;
   --transfer: #a68bff;
@@ -59,14 +61,16 @@ h1, h2, h3 { letter-spacing: -0.02em; }
   height: 100vh;
 }
 .brand { display: flex; align-items: center; gap: 10px; padding: 6px 8px 14px; }
-.brand-mark {
-  display: grid; place-items: center;
-  width: 34px; height: 34px;
-  border-radius: 9px;
-  background: var(--primary); color: #fff;
-  font-weight: 800; font-size: 0.85rem; letter-spacing: 0.02em;
-}
-.brand-name { font-weight: 700; font-size: 1.05rem; }
+.brand-mark { width: 34px; height: 34px; flex-shrink: 0; display: block; }
+.brand-mark-lg { width: 72px; height: 72px; }
+.brand-wordmark { height: 22px; width: auto; display: block; }
+/* Two-tone wordmark on light; reversed (light text) on dark. */
+.brand-wordmark-dark { display: none; }
+[data-theme="dark"] .brand-wordmark-light { display: none; }
+[data-theme="dark"] .brand-wordmark-dark { display: block; }
+/* Stacked lockup for the lock screen. */
+.brand-stack { flex-direction: column; gap: 14px; padding-bottom: 4px; }
+.brand-stack .brand-wordmark { height: 30px; }
 
 .nav-list { display: flex; flex-direction: column; gap: 3px; }
 .nav-link {
@@ -154,7 +158,7 @@ input, select {
   font: inherit; color: var(--text); background: var(--surface-2);
   border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px; width: 100%;
 }
-input:focus, select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(47, 109, 246, 0.15); }
+input:focus, select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(14, 122, 110, 0.18); }
 
 /* Segmented control */
 .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 4px; }
@@ -412,7 +416,7 @@ dialog.lightbox img { display: block; max-width: 96vw; max-height: 92vh; border-
     border-radius: 50%;
     background: var(--primary); color: #fff;
     font-size: 1.6rem; font-weight: 400; line-height: 1;
-    box-shadow: 0 4px 12px rgba(47, 109, 246, 0.4);
+    box-shadow: 0 4px 12px rgba(14, 122, 110, 0.4);
   }
 }
 
