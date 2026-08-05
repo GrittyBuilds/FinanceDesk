@@ -143,10 +143,12 @@ Auto-sync pulls the server copy, merges it with your local data, and pushes the
 result. Merge is per-record: accounts and transactions are keyed by id and the
 most recently edited version wins; **deletions are tracked with tombstones** so a
 record you delete on one device isn't resurrected by another device's older copy.
-**Accounts merge field-by-field** (per-field timestamps), so renaming an account
-on one device and archiving it on another keeps *both* changes. Budgets and
-cleared flags are last-write-wins per key. A version check still guards each push
-(the client retries the merge if the server moved underneath it).
+**Accounts and transactions merge field-by-field** (per-field timestamps), so
+editing a transaction's note on one device and its amount on another — or
+renaming an account on one device and archiving it on another — keeps *both*
+changes (a transaction's balanced lines are still treated atomically). Budgets
+and cleared flags are last-write-wins per key. A version check still guards each
+push (the client retries the merge if the server moved underneath it).
 
 ### End-to-end encryption (optional, recommended)
 
@@ -190,4 +192,3 @@ Nothing is sent anywhere. Clearing your browser data removes it, so use
 
 ## Roadmap ideas
 
-- Field-level merge for transactions (accounts already merge per-field)

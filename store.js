@@ -349,9 +349,12 @@
   function nowMs() { var t = Date.now(); if (t <= lastMs) t = lastMs + 1; lastMs = t; return t; }
 
   function addEntry(fields) {
+    var t = nowMs();
     var entry = {
       id: genId("j"), date: fields.date, description: fields.description || "",
-      kind: fields.kind || "journal", lines: fields.lines, createdAt: nowISO(), updatedAt: nowMs(),
+      kind: fields.kind || "journal", lines: fields.lines, createdAt: nowISO(), updatedAt: t,
+      // Per-field timestamps enable field-level merge across devices.
+      fieldTs: { date: t, description: t, kind: t, lines: t },
     };
     state.journal.push(entry);
     persist();
@@ -360,13 +363,22 @@
   function updateEntry(id, fields) {
     var idx = state.journal.findIndex(function (e) { return e.id === id; });
     if (idx === -1) return null;
-    var e = state.journal[idx];
-    state.journal[idx] = {
+    var e = state.journal[idx], t = nowMs();
+    var next = {
       id: e.id, createdAt: e.createdAt, date: fields.date, description: fields.description || "",
-      kind: fields.kind || e.kind, lines: fields.lines, updatedAt: nowMs(),
+      kind: fields.kind || e.kind, lines: fields.lines,
     };
+    if (e.recurringId) next.recurringId = e.recurringId;
+    // Bump the timestamp only for fields whose value actually changed, so a
+    // description edit on one device and an amount edit on another both survive.
+    var ft = e.fieldTs ? { date: e.fieldTs.date, description: e.fieldTs.description, kind: e.fieldTs.kind, lines: e.fieldTs.lines } : {};
+    ["date", "description", "kind"].forEach(function (f) { if (next[f] !== e[f]) ft[f] = t; else if (!ft[f]) ft[f] = e.updatedAt || t; });
+    if (JSON.stringify(next.lines) !== JSON.stringify(e.lines)) ft.lines = t; else if (!ft.lines) ft.lines = e.updatedAt || t;
+    next.fieldTs = ft;
+    next.updatedAt = Math.max(ft.date, ft.description, ft.kind, ft.lines);
+    state.journal[idx] = next;
     persist();
-    return state.journal[idx];
+    return next;
   }
   function deleteEntry(id) {
     state.journal = state.journal.filter(function (e) { return e.id !== id; });
@@ -508,9 +520,11 @@
       while (due <= today && (!rule.endDate || due <= rule.endDate) && guard < SAFETY) {
         var occId = "jrec-" + rule.id + "-" + due;
         if (!state.journal.some(function (e) { return e.id === occId; })) {
+          var t = nowMs();
           state.journal.push({
             id: occId, date: due, description: rule.description, kind: rule.kind,
-            lines: ruleLines(rule), createdAt: nowISO(), updatedAt: nowMs(), recurringId: rule.id,
+            lines: ruleLines(rule), createdAt: nowISO(), updatedAt: t, recurringId: rule.id,
+            fieldTs: { date: t, description: t, kind: t, lines: t },
           });
           created++;
         }
@@ -709,10 +723,26 @@
     merged.updatedAt = Math.max(x.updatedAt || 0, y.updatedAt || 0);
     return merged;
   }
+  // Field-level merge for journal entries. date/description/kind/lines each come
+  // from whichever side edited them last; `lines` is atomic (a balanced entry is
+  // never split across devices).
+  var ENTRY_FIELDS = ["date", "description", "kind", "lines"];
+  function combineEntry(x, y) {
+    var merged = { id: x.id, createdAt: x.createdAt || y.createdAt }, ft = {};
+    ENTRY_FIELDS.forEach(function (f) {
+      var xt = fieldTs(x, f), yt = fieldTs(y, f), src = yt > xt ? y : x;
+      merged[f] = src[f];
+      ft[f] = Math.max(xt, yt);
+    });
+    if (x.recurringId || y.recurringId) merged.recurringId = x.recurringId || y.recurringId;
+    merged.fieldTs = ft;
+    merged.updatedAt = Math.max(x.updatedAt || 0, y.updatedAt || 0);
+    return merged;
+  }
   function merge(local, remote) {
     local = local || {}; remote = remote || {};
     var lt = normTombstones(local.tombstones), rt = normTombstones(remote.tombstones);
-    var j = mergeCollection(local.journal, remote.journal, lt.journal, rt.journal);
+    var j = mergeCollection(local.journal, remote.journal, lt.journal, rt.journal, combineEntry);
     var a = mergeCollection(local.accounts, remote.accounts, lt.accounts, rt.accounts, combineAccount);
     var rec = mergeCollection(local.recurring, remote.recurring, lt.recurring, rt.recurring);
     var lb = (local.meta && local.meta.budgetsUpdatedAt) || 0, rb = (remote.meta && remote.meta.budgetsUpdatedAt) || 0;
