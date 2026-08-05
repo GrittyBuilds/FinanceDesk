@@ -22,6 +22,10 @@ views) and **mobile** (bottom tab bar with a quick-add button, stacked layouts).
   simple form; the app builds the underlying journal entry for you.
 - **Split transactions** — divide one transaction across several
   categories/subcategories (e.g. a store run that's part Food, part Household).
+- **Vendor & tags** — record a **vendor/payee** (with autocomplete from vendors
+  you've used) and attach any number of **tags** to a transaction (type them
+  comma-separated, or click an existing tag to add it). Both show as chips in the
+  ledger, are carried by recurring transactions, and travel in CSV export/import.
 - **Account registers** — drill into any account to see its transactions with a
   running balance.
 - **Reconciliation** — in a register, mark entries **cleared** and enter your
@@ -42,6 +46,9 @@ views) and **mobile** (bottom tab bar with a quick-add button, stacked layouts).
     equity), reconciled to your account balances; compares to the prior period.
   - **Balance Sheet** as of any date, with a live "in balance" check
     (Assets = Liabilities + Equity); compares to any prior date.
+  - **By Tag** — income and expenses grouped by tag over the selected period
+    (with an untagged bucket). A multi-tag transaction counts in full under each
+    of its tags, while the "tagged total" counts each transaction once.
 - **Dashboard** — net worth, income/expense/net for the month, a **net-worth
   trend** line and **12-month income-vs-expense** bars, a spending donut, and
   recent activity.

@@ -11,7 +11,7 @@
   ];
 
   var report = { type: "pl", period: "this-month", from: null, to: null, asOf: null, compare: false, compareAsOf: null };
-  var txFilter = { type: "all", accountId: "all" };
+  var txFilter = { type: "all", accountId: "all", tag: "all", q: "" };
   var acctView = { id: null };     // when set, Accounts shows that account's register
   var txSplitMode = false;
   var pendingAttachment; // undefined = unchanged, null = remove, object = new attachment
@@ -237,17 +237,24 @@
     else renderLedgerTab();
   }
   function renderLedgerTab() {
+    var tagOpts = FD.allTags().map(function (t) { return '<option value="' + escapeHTML(t) + '">' + escapeHTML(t) + "</option>"; }).join("");
     $("#tx-tab-body").innerHTML =
       '<div class="card"><div class="card-head"><h2>Transaction Ledger</h2><div class="toolbar">' +
+        '<input type="search" id="f-search" class="f-search" placeholder="Search description, vendor, tag…" />' +
         '<select id="f-type"><option value="all">All types</option><option value="expense">Expense</option><option value="income">Income</option><option value="transfer">Transfer</option></select>' +
         '<select id="f-account"><option value="all">All accounts</option>' + hierOptions(nonArchived(), null) + "</select>" +
+        '<select id="f-tag"><option value="all">All tags</option>' + tagOpts + "</select>" +
         '<button class="btn btn-ghost btn-sm" id="export-btn">Export CSV</button>' +
         '<button class="btn btn-ghost btn-sm" id="import-btn">Import CSV</button>' +
         '<input type="file" id="import-input" accept=".csv,text/csv" hidden /></div></div>' +
         '<div id="tx-list-wrap"></div></div>';
     $("#f-type").value = txFilter.type; $("#f-account").value = txFilter.accountId;
+    $("#f-tag").value = FD.allTags().some(function (t) { return t === txFilter.tag; }) ? txFilter.tag : "all";
+    $("#f-search").value = txFilter.q;
     $("#f-type").addEventListener("change", function () { txFilter.type = this.value; renderTxList(); });
     $("#f-account").addEventListener("change", function () { txFilter.accountId = this.value; renderTxList(); });
+    $("#f-tag").addEventListener("change", function () { txFilter.tag = this.value; renderTxList(); });
+    $("#f-search").addEventListener("input", function () { txFilter.q = this.value; renderTxList(); });
     $("#export-btn").addEventListener("click", exportCSV);
     $("#import-btn").addEventListener("click", function () { $("#import-input").click(); });
     $("#import-input").addEventListener("change", handleImportFile);
@@ -289,7 +296,20 @@
   function passesFilter(e) {
     if (txFilter.type !== "all" && e.kind !== txFilter.type) return false;
     if (txFilter.accountId !== "all" && !e.lines.some(function (l) { return l.accountId === txFilter.accountId; })) return false;
+    if (txFilter.tag !== "all") {
+      var want = txFilter.tag.toLowerCase();
+      if (!(e.tags || []).some(function (t) { return t.toLowerCase() === want; })) return false;
+    }
+    var q = (txFilter.q || "").trim().toLowerCase();
+    if (q && searchHaystack(e).indexOf(q) === -1) return false;
     return true;
+  }
+  // Everything a ledger search should match on: description, vendor, tags, and
+  // the names of the accounts/categories the entry touches.
+  function searchHaystack(e) {
+    var parts = [e.description || "", e.vendor || ""].concat(e.tags || []);
+    (e.lines || []).forEach(function (l) { var a = FD.getAccount(l.accountId); if (a) parts.push(a.name); });
+    return parts.join(" ").toLowerCase();
   }
   function renderTxList() {
     var wrap = $("#tx-list-wrap"), entries = FD.state.journal.filter(passesFilter).sort(sortEntries);
@@ -325,7 +345,11 @@
     } else { icon = "📘"; title = entry.description || "Journal entry"; sub = entry.kind || "journal"; }
 
     var clip = FD.getAttachment(entry.id) ? ' <span class="tx-clip" title="Has receipt">📎</span>' : "";
-    li.innerHTML = '<div class="tx-icon">' + escapeHTML(icon) + '</div><div class="tx-body"><div class="tx-desc"></div><div class="tx-meta"></div></div>' +
+    var chips = "";
+    if (entry.vendor) chips += '<span class="chip chip-vendor">🏪 ' + escapeHTML(entry.vendor) + "</span>";
+    (entry.tags || []).forEach(function (t) { chips += '<span class="chip">' + escapeHTML(t) + "</span>"; });
+    var chipsHtml = chips ? '<div class="tx-chips">' + chips + "</div>" : "";
+    li.innerHTML = '<div class="tx-icon">' + escapeHTML(icon) + '</div><div class="tx-body"><div class="tx-desc"></div><div class="tx-meta"></div>' + chipsHtml + "</div>" +
       '<div class="tx-right"><div class="tx-amount ' + amountCls + '">' + sign + money(d.amount) + '</div><div class="tx-tag">' + escapeHTML(d.kind) + clip + "</div></div>";
     $(".tx-desc", li).textContent = title; $(".tx-meta", li).textContent = sub;
     if (d.kind === "expense" || d.kind === "income" || d.kind === "transfer") {
@@ -463,7 +487,7 @@
   function renderReports() {
     var el = $("#view-reports");
     el.innerHTML = '<div class="card"><div class="report-controls">' +
-      '<select id="r-type"><option value="pl">Profit &amp; Loss</option><option value="cf">Cash Flow</option><option value="bs">Balance Sheet</option></select>' +
+      '<select id="r-type"><option value="pl">Profit &amp; Loss</option><option value="cf">Cash Flow</option><option value="bs">Balance Sheet</option><option value="tag">By Tag</option></select>' +
       '<span id="r-period-wrap"></span></div><div id="report-body" style="margin-top:16px"></div></div>';
     $("#r-type").value = report.type;
     $("#r-type").addEventListener("change", function () { report.type = this.value; renderReportControls(); renderReportBody(); });
@@ -490,7 +514,7 @@
       '<option value="this-year">This year</option><option value="last-year">Last year</option>' +
       '<option value="all">All time</option><option value="custom">Custom…</option></select>' +
       '<span id="r-custom" style="display:none;gap:8px"><input type="date" id="r-from" /><input type="date" id="r-to" /></span>' +
-      '<label class="switch-lite"><input type="checkbox" id="r-compare" /> Compare to prior</label>';
+      (report.type === "tag" ? "" : '<label class="switch-lite"><input type="checkbox" id="r-compare" /> Compare to prior</label>');
     $("#r-period").value = report.period;
     var custom = $("#r-custom"); custom.style.display = report.period === "custom" ? "inline-flex" : "none";
     if (report.from) $("#r-from").value = report.from; if (report.to) $("#r-to").value = report.to;
@@ -513,7 +537,7 @@
     }
   }
   function renderReportBody() {
-    $("#report-body").innerHTML = report.type === "pl" ? renderPL() : report.type === "cf" ? renderCF() : renderBS();
+    $("#report-body").innerHTML = report.type === "pl" ? renderPL() : report.type === "cf" ? renderCF() : report.type === "tag" ? renderTagReport() : renderBS();
   }
   function periodLabel(p) { return (p.from ? fmtDate(p.from) : "the beginning") + " – " + fmtDate(p.to); }
 
@@ -584,6 +608,36 @@
       '<div class="report-total ' + (r.netIncome >= 0 ? "pos" : "neg") + '"><span>Net ' + (r.netIncome >= 0 ? "Income" : "Loss") + '</span><span class="tabular">' + signedMoney(r.netIncome) + "</span>" +
       (compare ? '<span class="tabular muted">' + signedMoney(pr.netIncome) + '</span><span class="tabular ' + (netD >= 0 ? "pos" : "neg") + '">' + signedMoney(netD) + "</span>" : "") +
       "</div></div>";
+  }
+  function renderTagReport() {
+    var p = resolvePeriod(), rows = FD.tagTotals(FD.state.journal, p.from, p.to);
+    var head = '<div class="report"><div class="report-title"><h3>Spending &amp; Income by Tag</h3><div class="muted">' + periodLabel(p) + "</div></div>";
+    if (!rows.length) return head + '<div class="report-line"><span class="r-name muted">No tagged transactions in this period.</span></div></div>';
+    // True totals count each tagged transaction once (per-tag rows below can
+    // double-count a multi-tag transaction, so they aren't summed here).
+    var totExp = 0, totInc = 0;
+    FD.state.journal.forEach(function (e) {
+      if (!(e.tags && e.tags.length)) return;
+      if (e.kind !== "expense" && e.kind !== "income") return;
+      if (p.from && e.date < p.from) return;
+      if (p.to && e.date > p.to) return;
+      var amt = FD.describeEntry(e).amount || 0;
+      if (e.kind === "expense") totExp += amt; else totInc += amt;
+    });
+    var body = '<div class="report-colhead tag-cols"><span>Tag</span><span>Income</span><span>Expenses</span><span>Net</span></div>';
+    rows.forEach(function (r) {
+      var name = r.tag === "(untagged)" ? '<span class="muted">(untagged)</span>' : escapeHTML(r.tag);
+      body += '<div class="report-line tag-cols"><span class="r-name">' + name + ' <span class="muted">· ' + r.count + '</span></span>' +
+        '<span class="r-amt tabular">' + (r.income ? money(r.income) : "—") + "</span>" +
+        '<span class="r-amt tabular">' + (r.expense ? money(r.expense) : "—") + "</span>" +
+        '<span class="r-amt tabular ' + (r.net >= 0 ? "pos" : "neg") + '">' + signedMoney(r.net) + "</span></div>";
+    });
+    body += '<div class="report-total tag-cols"><span>Tagged total</span>' +
+      '<span class="tabular">' + money(FD.round2(totInc)) + '</span>' +
+      '<span class="tabular">' + money(FD.round2(totExp)) + '</span>' +
+      '<span class="tabular ' + (totInc - totExp >= 0 ? "pos" : "neg") + '">' + signedMoney(FD.round2(totInc - totExp)) + "</span></div>";
+    body += '<p class="section-hint" style="margin-top:10px">A transaction with several tags is counted in full under each, so tag rows can total more than the tagged total. The count after each tag is how many transactions carry it.</p>';
+    return head + body + "</div>";
   }
   function defaultPriorAsOf(asOf) { return (parseInt(asOf.slice(0, 4), 10) - 1) + asOf.slice(4); } // one year earlier
   // Shared compare cells: cur value, prior value, favorable direction, and a formatter.
@@ -992,12 +1046,14 @@
     $("#tx-repeat").value = "none"; $("#tx-repeat-until-field").style.display = "none"; $("#tx-repeat-until").value = "";
     pendingAttachment = undefined; $("#tx-attach-field").style.display = "";
     renderTxAttach();
+    populateVendorList();
 
     if (editId) {
       var entry = FD.state.journal.find(function (e) { return e.id === editId; }), d = FD.describeEntry(entry);
       var kind = d.generic ? "transfer" : d.kind;
       $('input[name="tx-kind"][value="' + kind + '"]').checked = true;
       $("#tx-desc").value = entry.description || ""; $("#tx-date").value = entry.date;
+      $("#tx-vendor").value = entry.vendor || ""; $("#tx-tags").value = (entry.tags || []).join(", ");
       updateSplitAvailability(kind);
       if (d.split) {
         populateTxSelects(kind, null, kind === "income" ? d.depositId : d.paymentId);
@@ -1012,14 +1068,43 @@
     } else {
       $("#tx-form").reset(); $('input[name="tx-kind"][value="expense"]').checked = true;
       $("#tx-date").value = todayISO(); populateTxSelects("expense"); updateSplitAvailability("expense");
+      $("#tx-vendor").value = ""; $("#tx-tags").value = "";
     }
+    renderTagSuggest();
     txDialog.showModal();
     setTimeout(function () { (txSplitMode ? $(".split-amt") : $("#tx-amount")).focus(); }, 30);
+  }
+  // Fill the vendor autocomplete datalist with vendors seen before.
+  function populateVendorList() {
+    var dl = $("#tx-vendor-list"); if (!dl) return;
+    dl.innerHTML = FD.allVendors().map(function (v) { return '<option value="' + escapeHTML(v) + '"></option>'; }).join("");
+  }
+  // Render existing tags as clickable chips that toggle in/out of the Tags input.
+  function renderTagSuggest() {
+    var wrap = $("#tx-tag-suggest"); if (!wrap) return;
+    var tags = FD.allTags();
+    if (!tags.length) { wrap.innerHTML = ""; return; }
+    var current = FD.normalizeTags($("#tx-tags").value).map(function (t) { return t.toLowerCase(); });
+    wrap.innerHTML = tags.map(function (t) {
+      var on = current.indexOf(t.toLowerCase()) !== -1;
+      return '<button type="button" class="chip' + (on ? " on" : "") + '" data-tag="' + escapeHTML(t) + '">' + escapeHTML(t) + "</button>";
+    }).join("");
+    $all("#tx-tag-suggest .chip").forEach(function (btn) {
+      btn.addEventListener("click", function () { toggleTag(btn.getAttribute("data-tag")); });
+    });
+  }
+  function toggleTag(tag) {
+    var list = FD.normalizeTags($("#tx-tags").value);
+    var i = list.map(function (t) { return t.toLowerCase(); }).indexOf(tag.toLowerCase());
+    if (i === -1) list.push(tag); else list.splice(i, 1);
+    $("#tx-tags").value = list.join(", ");
+    renderTagSuggest();
   }
 
   function submitTx(ev) {
     ev.preventDefault();
     var kind = currentKind(), date = $("#tx-date").value || todayISO(), desc = $("#tx-desc").value.trim();
+    var vendor = $("#tx-vendor").value.trim(), tags = FD.normalizeTags($("#tx-tags").value);
     var secondary = $("#tx-secondary").value, lines;
 
     if (txSplitMode && (kind === "expense" || kind === "income")) {
@@ -1040,7 +1125,7 @@
     var repeat = editId ? "none" : $("#tx-repeat").value;
     if (repeat !== "none") {
       // Create a recurring rule; it posts the first occurrence (and any backfill).
-      var rule = { kind: kind, description: desc, freq: repeat, startDate: date, endDate: $("#tx-repeat-until").value || null, today: todayISO() };
+      var rule = { kind: kind, description: desc, vendor: vendor, tags: tags, freq: repeat, startDate: date, endDate: $("#tx-repeat-until").value || null, today: todayISO() };
       if (txSplitMode && (kind === "expense" || kind === "income")) {
         rule.split = true;
         rule.splits = $all("#tx-splits .split-row").map(function (row) { return { accountId: row.querySelector(".split-cat").value, amount: parseFloat(row.querySelector(".split-amt").value) || 0 }; }).filter(function (s) { return s.amount > 0; });
@@ -1055,8 +1140,8 @@
       FD.addRecurring(rule);
     } else {
       var savedId = editId;
-      if (editId) FD.updateEntry(editId, { date: date, description: desc, kind: kind, lines: lines });
-      else savedId = FD.addEntry({ date: date, description: desc, kind: kind, lines: lines }).id;
+      if (editId) FD.updateEntry(editId, { date: date, description: desc, vendor: vendor, tags: tags, kind: kind, lines: lines });
+      else savedId = FD.addEntry({ date: date, description: desc, vendor: vendor, tags: tags, kind: kind, lines: lines }).id;
       // Apply a receipt change (pendingAttachment: undefined=keep, null=remove, object=set).
       if (typeof pendingAttachment !== "undefined" && savedId) {
         if (pendingAttachment === null) FD.removeAttachment(savedId);
@@ -1209,15 +1294,15 @@
     var j = FD.state.journal.slice().sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
     var out = [];
     j.forEach(function (e) {
-      var d = FD.describeEntry(e);
-      if (d.kind === "expense" && d.split) { d.splits.forEach(function (s) { out.push([e.date, "expense", e.description, s.amount, nameOf(s.accountId), nameOf(d.paymentId)]); }); }
-      else if (d.kind === "income" && d.split) { d.splits.forEach(function (s) { out.push([e.date, "income", e.description, s.amount, nameOf(s.accountId), nameOf(d.depositId)]); }); }
-      else if (d.kind === "expense") { out.push([e.date, "expense", e.description, d.amount, nameOf(d.categoryId), nameOf(d.paymentId)]); }
-      else if (d.kind === "income") { out.push([e.date, "income", e.description, d.amount, nameOf(d.categoryId), nameOf(d.depositId)]); }
-      else if (d.kind === "transfer") { out.push([e.date, "transfer", e.description, d.amount, nameOf(d.fromId), nameOf(d.toId)]); }
+      var d = FD.describeEntry(e), ven = e.vendor || "", tg = (e.tags || []).join("; ");
+      if (d.kind === "expense" && d.split) { d.splits.forEach(function (s) { out.push([e.date, "expense", e.description, s.amount, nameOf(s.accountId), nameOf(d.paymentId), ven, tg]); }); }
+      else if (d.kind === "income" && d.split) { d.splits.forEach(function (s) { out.push([e.date, "income", e.description, s.amount, nameOf(s.accountId), nameOf(d.depositId), ven, tg]); }); }
+      else if (d.kind === "expense") { out.push([e.date, "expense", e.description, d.amount, nameOf(d.categoryId), nameOf(d.paymentId), ven, tg]); }
+      else if (d.kind === "income") { out.push([e.date, "income", e.description, d.amount, nameOf(d.categoryId), nameOf(d.depositId), ven, tg]); }
+      else if (d.kind === "transfer") { out.push([e.date, "transfer", e.description, d.amount, nameOf(d.fromId), nameOf(d.toId), ven, tg]); }
     });
     if (!out.length) { alert("No transactions to export."); return; }
-    var header = ["date", "type", "description", "amount", "category", "account"];
+    var header = ["date", "type", "description", "amount", "category", "account", "vendor", "tags"];
     var csv = [header.join(",")].concat(out.map(function (r) { return r.map(csvEscape).join(","); })).join("\n");
     download("finance-desk-" + currentMonthKey() + ".csv", csv, "text/csv;charset=utf-8;");
   }
@@ -1241,24 +1326,26 @@
   function importCSV(text) {
     var rows = parseCSV(text); if (!rows.length) { alert("The CSV file is empty."); return; }
     var head = rows[0].map(function (h) { return h.trim().toLowerCase(); });
-    var idx = { date: head.indexOf("date"), type: head.indexOf("type"), description: head.indexOf("description"), amount: head.indexOf("amount"), category: head.indexOf("category"), account: head.indexOf("account") };
+    var idx = { date: head.indexOf("date"), type: head.indexOf("type"), description: head.indexOf("description"), amount: head.indexOf("amount"), category: head.indexOf("category"), account: head.indexOf("account"), vendor: head.indexOf("vendor"), tags: head.indexOf("tags") };
     var start = idx.date !== -1 && idx.amount !== -1 ? 1 : 0;
-    if (start === 0) idx = { date: 0, type: 1, description: 2, amount: 3, category: 4, account: 5 };
+    if (start === 0) idx = { date: 0, type: 1, description: 2, amount: 3, category: 4, account: 5, vendor: 6, tags: 7 };
     var added = 0, skipped = 0;
     for (var i = start; i < rows.length; i++) {
       var r = rows[i], date = (r[idx.date] || "").trim(), amount = parseFloat(r[idx.amount]), type = (r[idx.type] || "expense").trim().toLowerCase();
       if (!(amount > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) { skipped++; continue; }
       var desc = (r[idx.description] || "").trim(), catName = (r[idx.category] || "").trim(), acctName = (r[idx.account] || "").trim();
+      var vendor = idx.vendor !== -1 ? (r[idx.vendor] || "").trim() : "";
+      var tags = idx.tags !== -1 ? FD.normalizeTags((r[idx.tags] || "").replace(/;/g, ",")) : [];
       if (type === "income") {
         var inc = findAccountByName(catName, ["income"]) || FD.getAccount("inc-other"), dep = findAccountByName(acctName, ["asset"]) || FD.getAccount("checking");
-        FD.addEntry({ date: date, description: desc, kind: "income", lines: FD.buildIncome({ amount: amount, categoryId: inc.id, depositId: dep.id }) }); added++;
+        FD.addEntry({ date: date, description: desc, vendor: vendor, tags: tags, kind: "income", lines: FD.buildIncome({ amount: amount, categoryId: inc.id, depositId: dep.id }) }); added++;
       } else if (type === "transfer") {
         var from = findAccountByName(catName, ["asset", "liability"]), to = findAccountByName(acctName, ["asset", "liability"]);
         if (!from || !to || from.id === to.id) { skipped++; continue; }
-        FD.addEntry({ date: date, description: desc, kind: "transfer", lines: FD.buildTransfer({ amount: amount, fromId: from.id, toId: to.id }) }); added++;
+        FD.addEntry({ date: date, description: desc, vendor: vendor, tags: tags, kind: "transfer", lines: FD.buildTransfer({ amount: amount, fromId: from.id, toId: to.id }) }); added++;
       } else {
         var cat = findAccountByName(catName, ["expense"]) || FD.getAccount("exp-other"), pay = findAccountByName(acctName, ["asset", "liability"]) || FD.getAccount("checking");
-        FD.addEntry({ date: date, description: desc, kind: "expense", lines: FD.buildExpense({ amount: amount, categoryId: cat.id, paymentId: pay.id }) }); added++;
+        FD.addEntry({ date: date, description: desc, vendor: vendor, tags: tags, kind: "expense", lines: FD.buildExpense({ amount: amount, categoryId: cat.id, paymentId: pay.id }) }); added++;
       }
     }
     refresh();
@@ -1288,6 +1375,7 @@
   function bindDialogs() {
     txDialog = $("#tx-dialog"); accountDialog = $("#account-dialog");
     $("#tx-form").addEventListener("submit", submitTx);
+    $("#tx-tags").addEventListener("input", renderTagSuggest);
     $("#tx-delete").addEventListener("click", deleteTx);
     $("#tx-split-toggle").addEventListener("click", toggleSplitMode);
     $("#tx-add-split").addEventListener("click", function () { addSplitRow(); });

@@ -11,8 +11,9 @@
  *   Normal balance: asset & expense are debit-normal; liability, equity,
  *   income are credit-normal.
  *
- * Journal entry { id, date:"YYYY-MM-DD", description, kind, lines[], createdAt }
+ * Journal entry { id, date:"YYYY-MM-DD", description, vendor, tags[], kind, lines[], createdAt }
  *   kind ∈ expense | income | transfer | opening | journal
+ *   vendor  optional payee/merchant name; tags  optional array of labels
  *   lines: [{ accountId, debit, credit }] — every entry MUST balance
  *          (sum debits === sum credits). Entries may have >2 lines (splits).
  *
@@ -371,9 +372,10 @@
     var t = nowMs();
     var entry = {
       id: genId("j"), date: fields.date, description: fields.description || "",
+      vendor: (fields.vendor || "").trim(), tags: normalizeTags(fields.tags),
       kind: fields.kind || "journal", lines: fields.lines, createdAt: nowISO(), updatedAt: t,
       // Per-field timestamps enable field-level merge across devices.
-      fieldTs: { date: t, description: t, kind: t, lines: t },
+      fieldTs: { date: t, description: t, vendor: t, tags: t, kind: t, lines: t },
     };
     state.journal.push(entry);
     persist();
@@ -385,16 +387,19 @@
     var e = state.journal[idx], t = nowMs();
     var next = {
       id: e.id, createdAt: e.createdAt, date: fields.date, description: fields.description || "",
+      vendor: (fields.vendor || "").trim(), tags: normalizeTags(fields.tags),
       kind: fields.kind || e.kind, lines: fields.lines,
     };
     if (e.recurringId) next.recurringId = e.recurringId;
     // Bump the timestamp only for fields whose value actually changed, so a
     // description edit on one device and an amount edit on another both survive.
-    var ft = e.fieldTs ? { date: e.fieldTs.date, description: e.fieldTs.description, kind: e.fieldTs.kind, lines: e.fieldTs.lines } : {};
-    ["date", "description", "kind"].forEach(function (f) { if (next[f] !== e[f]) ft[f] = t; else if (!ft[f]) ft[f] = e.updatedAt || t; });
+    var ft = {};
+    ENTRY_FIELDS.forEach(function (f) { ft[f] = e.fieldTs && e.fieldTs[f] ? e.fieldTs[f] : 0; });
+    ["date", "description", "vendor", "kind"].forEach(function (f) { if (next[f] !== e[f]) ft[f] = t; else if (!ft[f]) ft[f] = e.updatedAt || t; });
+    if (JSON.stringify(next.tags) !== JSON.stringify(e.tags || [])) ft.tags = t; else if (!ft.tags) ft.tags = e.updatedAt || t;
     if (JSON.stringify(next.lines) !== JSON.stringify(e.lines)) ft.lines = t; else if (!ft.lines) ft.lines = e.updatedAt || t;
     next.fieldTs = ft;
-    next.updatedAt = Math.max(ft.date, ft.description, ft.kind, ft.lines);
+    next.updatedAt = Math.max(ft.date, ft.description, ft.vendor, ft.tags, ft.kind, ft.lines);
     state.journal[idx] = next;
     persist();
     return next;
@@ -499,6 +504,7 @@
   function addRecurring(fields) {
     var rule = {
       id: genId("r"), kind: fields.kind, description: fields.description || "",
+      vendor: (fields.vendor || "").trim(), tags: normalizeTags(fields.tags),
       amount: fields.amount || 0, split: !!fields.split, splits: fields.splits || null,
       categoryId: fields.categoryId, paymentId: fields.paymentId, depositId: fields.depositId,
       fromId: fields.fromId, toId: fields.toId,
@@ -542,8 +548,9 @@
           var t = nowMs();
           state.journal.push({
             id: occId, date: due, description: rule.description, kind: rule.kind,
+            vendor: (rule.vendor || "").trim(), tags: normalizeTags(rule.tags),
             lines: ruleLines(rule), createdAt: nowISO(), updatedAt: t, recurringId: rule.id,
-            fieldTs: { date: t, description: t, kind: t, lines: t },
+            fieldTs: { date: t, description: t, vendor: t, tags: t, kind: t, lines: t },
           });
           created++;
         }
@@ -668,6 +675,63 @@
     return { kind: entry.kind || "journal", amount: round2(a), generic: true };
   }
 
+  // ---- Tags & vendors ----
+  // Accept a comma-separated string or an array; trim, collapse whitespace, cap
+  // length, and de-duplicate case-insensitively (keeping the first casing seen).
+  function normalizeTags(input) {
+    var arr;
+    if (Array.isArray(input)) arr = input;
+    else if (typeof input === "string") arr = input.split(",");
+    else return [];
+    var seen = {}, out = [];
+    arr.forEach(function (raw) {
+      var t = String(raw == null ? "" : raw).trim().replace(/\s+/g, " ");
+      if (t.length > 40) t = t.slice(0, 40);
+      if (!t) return;
+      var key = t.toLowerCase();
+      if (seen[key]) return;
+      seen[key] = 1; out.push(t);
+    });
+    return out;
+  }
+  function collectUnique(pick) {
+    var seen = {}, out = [];
+    [state.journal, state.recurring].forEach(function (list) {
+      (list || []).forEach(function (item) {
+        pick(item).forEach(function (v) {
+          v = String(v || "").trim(); if (!v) return;
+          var k = v.toLowerCase(); if (!seen[k]) { seen[k] = 1; out.push(v); }
+        });
+      });
+    });
+    return out.sort(function (a, b) { return a.toLowerCase().localeCompare(b.toLowerCase()); });
+  }
+  function allTags() { return collectUnique(function (item) { return item.tags || []; }); }
+  function allVendors() { return collectUnique(function (item) { return item.vendor ? [item.vendor] : []; }); }
+
+  // Sum income & expense by tag over [from,to]. A multi-tag transaction counts in
+  // full under each of its tags, so tag columns can total more than the period's
+  // net. Entries with no tags fall into the "(untagged)" bucket, listed last.
+  function tagTotals(journal, from, to) {
+    var map = {}, order = [];
+    function bucket(name) { if (!map[name]) { map[name] = { tag: name, income: 0, expense: 0, count: 0 }; order.push(name); } return map[name]; }
+    (journal || []).forEach(function (e) {
+      if (e.kind !== "expense" && e.kind !== "income") return;
+      if (from && e.date < from) return;
+      if (to && e.date > to) return;
+      var amt = describeEntry(e).amount || 0;
+      var tags = (e.tags && e.tags.length) ? e.tags : ["(untagged)"];
+      tags.forEach(function (t) { var b = bucket(t); if (e.kind === "expense") b.expense += amt; else b.income += amt; b.count++; });
+    });
+    var rows = order.map(function (n) { var b = map[n]; b.income = round2(b.income); b.expense = round2(b.expense); b.net = round2(b.income - b.expense); return b; });
+    rows.sort(function (a, b) {
+      if (a.tag === "(untagged)") return 1;
+      if (b.tag === "(untagged)") return -1;
+      return (b.expense + b.income) - (a.expense + a.income);
+    });
+    return rows;
+  }
+
   // Per-account register with running balance (chronological).
   function register(journal, account) {
     var rows = [];
@@ -745,7 +809,7 @@
   // Field-level merge for journal entries. date/description/kind/lines each come
   // from whichever side edited them last; `lines` is atomic (a balanced entry is
   // never split across devices).
-  var ENTRY_FIELDS = ["date", "description", "kind", "lines"];
+  var ENTRY_FIELDS = ["date", "description", "vendor", "tags", "kind", "lines"];
   function combineEntry(x, y) {
     var merged = { id: x.id, createdAt: x.createdAt || y.createdAt }, ft = {};
     ENTRY_FIELDS.forEach(function (f) {
@@ -843,6 +907,9 @@
     topLevel: topLevel, rolledBalance: rolledBalance, orderedByHierarchy: orderedByHierarchy,
     // reports
     profitAndLoss: profitAndLoss, balanceSheet: balanceSheet, cashFlow: cashFlow, register: register,
+    tagTotals: tagTotals,
+    // tags & vendors
+    normalizeTags: normalizeTags, allTags: allTags, allVendors: allVendors,
     // builders
     buildExpense: buildExpense, buildIncome: buildIncome, buildTransfer: buildTransfer,
     buildExpenseSplit: buildExpenseSplit, buildIncomeSplit: buildIncomeSplit,

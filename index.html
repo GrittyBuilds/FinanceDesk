@@ -80,6 +80,18 @@
         <input type="text" id="tx-desc" placeholder="e.g. Weekly groceries" maxlength="120" />
       </label>
 
+      <label class="field">
+        <span>Vendor <span class="muted">(optional)</span></span>
+        <input type="text" id="tx-vendor" list="tx-vendor-list" placeholder="e.g. Whole Foods" maxlength="80" />
+        <datalist id="tx-vendor-list"></datalist>
+      </label>
+
+      <label class="field">
+        <span>Tags <span class="muted">(optional)</span></span>
+        <input type="text" id="tx-tags" placeholder="comma-separated, e.g. vacation, tax-deductible" maxlength="200" />
+        <div id="tx-tag-suggest" class="tag-suggest"></div>
+      </label>
+
       <div class="field-row">
         <label class="field">
           <span>Amount</span>
