@@ -30,6 +30,7 @@
     journal: "financedesk.journal",
     budgets: "financedesk.budgets",
     recurring: "financedesk.recurring",
+    attachments: "financedesk.attachments",
     theme: "financedesk.theme",
     meta: "financedesk.meta",
   };
@@ -92,7 +93,8 @@
   // resurrected when another device's copy is merged in. meta.budgetsUpdatedAt
   // is a last-write-wins clock for the budgets map.
   // cleared: reconciliation flags keyed "accountId|entryId" -> { c: 0|1, u: ms }.
-  var state = { accounts: [], journal: [], budgets: {}, recurring: [], cleared: {}, tombstones: { journal: {}, accounts: {}, recurring: {} }, meta: { budgetsUpdatedAt: 0 } };
+  // attachments: entryId -> { name, type, dataUrl, updatedAt } (or { removed:1, updatedAt }).
+  var state = { accounts: [], journal: [], budgets: {}, recurring: [], cleared: {}, attachments: {}, tombstones: { journal: {}, accounts: {}, recurring: {} }, meta: { budgetsUpdatedAt: 0 } };
   var changeListeners = [];
 
   // ---- Persistence (guarded so Node without localStorage is fine) ----
@@ -112,7 +114,7 @@
   function normTombstones(t) { t = t || {}; return { journal: t.journal || {}, accounts: t.accounts || {}, recurring: t.recurring || {} }; }
   function snapshot() {
     return { accounts: state.accounts, journal: state.journal, budgets: state.budgets,
-      recurring: state.recurring, cleared: state.cleared, tombstones: state.tombstones, meta: state.meta };
+      recurring: state.recurring, cleared: state.cleared, attachments: state.attachments, tombstones: state.tombstones, meta: state.meta };
   }
   // Load state from a decrypted object without writing plaintext to disk.
   function hydrate(data) {
@@ -121,6 +123,7 @@
     state.budgets = (data && data.budgets) || {};
     state.recurring = (data && data.recurring) || [];
     state.cleared = (data && data.cleared) || {};
+    state.attachments = (data && data.attachments) || {};
     state.tombstones = normTombstones(data && data.tombstones);
     state.meta = (data && data.meta) || { budgetsUpdatedAt: 0 };
     return state;
@@ -139,6 +142,7 @@
       saveKey(KEYS.journal, state.journal);
       saveKey(KEYS.budgets, state.budgets);
       saveKey(KEYS.recurring, state.recurring);
+      saveKey(KEYS.attachments, state.attachments);
       saveKey(KEYS.meta, { tombstones: state.tombstones, meta: state.meta, cleared: state.cleared });
     }
     for (var i = 0; i < changeListeners.length; i++) { try { changeListeners[i](); } catch (e) {} }
@@ -367,6 +371,7 @@
   function deleteEntry(id) {
     state.journal = state.journal.filter(function (e) { return e.id !== id; });
     state.tombstones.journal[id] = nowMs();
+    if (state.attachments[id]) state.attachments[id] = { removed: 1, updatedAt: nowMs() };
     persist();
   }
 
@@ -542,6 +547,20 @@
     return round2(bal);
   }
 
+  // ---- Attachments (receipt image per transaction) ----
+  function setAttachment(entryId, att) {
+    state.attachments[entryId] = { name: att.name || "receipt", type: att.type || "image/jpeg", dataUrl: att.dataUrl, updatedAt: nowMs() };
+    persist();
+  }
+  function removeAttachment(entryId) {
+    if (state.attachments[entryId] || true) state.attachments[entryId] = { removed: 1, updatedAt: nowMs() };
+    persist();
+  }
+  function getAttachment(entryId) {
+    var a = state.attachments[entryId];
+    return a && a.dataUrl && !a.removed ? a : null;
+  }
+
   // ---- Opening balances (editable after creation) ----
   function findOpeningEntry(accountId) {
     return state.journal.find(function (e) {
@@ -635,7 +654,7 @@
   // ---- JSON backup / restore ----
   function exportData() {
     return { app: "finance-desk", version: DATA_VERSION, accounts: state.accounts, journal: state.journal,
-      budgets: state.budgets, recurring: state.recurring, cleared: state.cleared, tombstones: state.tombstones, meta: state.meta };
+      budgets: state.budgets, recurring: state.recurring, cleared: state.cleared, attachments: state.attachments, tombstones: state.tombstones, meta: state.meta };
   }
   function importData(obj) {
     if (!obj || !Array.isArray(obj.accounts) || !Array.isArray(obj.journal)) {
@@ -646,6 +665,7 @@
     state.budgets = obj.budgets && typeof obj.budgets === "object" ? obj.budgets : {};
     state.recurring = Array.isArray(obj.recurring) ? obj.recurring : [];
     state.cleared = obj.cleared && typeof obj.cleared === "object" ? obj.cleared : {};
+    state.attachments = obj.attachments && typeof obj.attachments === "object" ? obj.attachments : {};
     state.tombstones = normTombstones(obj.tombstones);
     state.meta = obj.meta && typeof obj.meta === "object" ? obj.meta : { budgetsUpdatedAt: 0 };
     persist();
@@ -700,8 +720,12 @@
     var cleared = {}; [local.cleared || {}, remote.cleared || {}].forEach(function (src) {
       Object.keys(src).forEach(function (k) { var v = src[k]; if (!cleared[k] || (v.u || 0) >= (cleared[k].u || 0)) cleared[k] = v; });
     });
+    // attachments: per entry, the more recent (updatedAt) wins.
+    var attachments = {}; [local.attachments || {}, remote.attachments || {}].forEach(function (src) {
+      Object.keys(src).forEach(function (k) { var v = src[k]; if (!attachments[k] || (v.updatedAt || 0) >= (attachments[k].updatedAt || 0)) attachments[k] = v; });
+    });
     return {
-      accounts: a.records, journal: j.records, recurring: rec.records, cleared: cleared,
+      accounts: a.records, journal: j.records, recurring: rec.records, cleared: cleared, attachments: attachments,
       budgets: (rb > lb ? remote.budgets : local.budgets) || {},
       tombstones: { journal: j.tombstones, accounts: a.tombstones, recurring: rec.tombstones },
       meta: { budgetsUpdatedAt: Math.max(lb, rb) },
@@ -741,6 +765,7 @@
       state.journal = loadKey(KEYS.journal, []) || [];
       state.budgets = loadKey(KEYS.budgets, {}) || {};
       state.recurring = loadKey(KEYS.recurring, []) || [];
+      state.attachments = loadKey(KEYS.attachments, {}) || {};
       var m = loadKey(KEYS.meta, null) || {};
       state.tombstones = normTombstones(m.tombstones);
       state.meta = m.meta || { budgetsUpdatedAt: 0 };
@@ -782,6 +807,8 @@
     deleteRecurring: deleteRecurring, postDueRecurring: postDueRecurring, nextDueDate: nextDueDate,
     // reconciliation
     isCleared: isCleared, setCleared: setCleared, toggleCleared: toggleCleared, clearedBalance: clearedBalance,
+    // attachments
+    setAttachment: setAttachment, removeAttachment: removeAttachment, getAttachment: getAttachment,
     // vault / persistence / sync
     snapshot: snapshot, hydrate: hydrate, isEncrypted: isEncrypted, onChange: onChange, merge: merge,
     // backup

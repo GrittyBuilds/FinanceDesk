@@ -129,6 +129,12 @@
         </label>
       </div>
 
+      <div class="field" id="tx-attach-field">
+        <span>Receipt <span class="muted">(optional)</span></span>
+        <div id="tx-attach"></div>
+        <input type="file" id="tx-attach-input" accept="image/*" hidden />
+      </div>
+
       <div class="dialog-actions">
         <button type="button" id="tx-delete" class="btn btn-danger" hidden>Delete</button>
         <span class="spacer"></span>
@@ -231,6 +237,11 @@
       <div id="e2ee-error" class="form-error" hidden></div>
       <div class="dialog-actions"><span class="spacer"></span><button type="button" class="btn btn-ghost" data-close>Cancel</button><button type="submit" class="btn btn-primary">Save</button></div>
     </form>
+  </dialog>
+
+  <!-- Receipt lightbox (dialog so it sits above the transaction modal's top layer) -->
+  <dialog id="img-lightbox" class="lightbox">
+    <img id="img-lightbox-img" alt="Receipt" />
   </dialog>
 
   <script src="store.js"></script>

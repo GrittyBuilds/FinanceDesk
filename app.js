@@ -14,6 +14,7 @@
   var txFilter = { type: "all", accountId: "all" };
   var acctView = { id: null };     // when set, Accounts shows that account's register
   var txSplitMode = false;
+  var pendingAttachment; // undefined = unchanged, null = remove, object = new attachment
 
   // ---------- helpers ----------
   function $(s, c) { return (c || document).querySelector(s); }
@@ -323,8 +324,9 @@
       icon = "⇄"; title = entry.description || "Transfer"; sub = (from ? from.name : "") + " → " + (to ? to.name : "");
     } else { icon = "📘"; title = entry.description || "Journal entry"; sub = entry.kind || "journal"; }
 
+    var clip = FD.getAttachment(entry.id) ? ' <span class="tx-clip" title="Has receipt">📎</span>' : "";
     li.innerHTML = '<div class="tx-icon">' + icon + '</div><div class="tx-body"><div class="tx-desc"></div><div class="tx-meta"></div></div>' +
-      '<div class="tx-right"><div class="tx-amount ' + amountCls + '">' + sign + money(d.amount) + '</div><div class="tx-tag">' + escapeHTML(d.kind) + "</div></div>";
+      '<div class="tx-right"><div class="tx-amount ' + amountCls + '">' + sign + money(d.amount) + '</div><div class="tx-tag">' + escapeHTML(d.kind) + clip + "</div></div>";
     $(".tx-desc", li).textContent = title; $(".tx-meta", li).textContent = sub;
     if (d.kind === "expense" || d.kind === "income" || d.kind === "transfer") {
       li.addEventListener("click", function () { openTxDialog(entry.id); });
@@ -959,6 +961,8 @@
     // Repeat is only offered for brand-new transactions.
     $("#tx-repeat-row").style.display = editId ? "none" : "";
     $("#tx-repeat").value = "none"; $("#tx-repeat-until-field").style.display = "none"; $("#tx-repeat-until").value = "";
+    pendingAttachment = undefined; $("#tx-attach-field").style.display = "";
+    renderTxAttach();
 
     if (editId) {
       var entry = FD.state.journal.find(function (e) { return e.id === editId; }), d = FD.describeEntry(entry);
@@ -1020,13 +1024,65 @@
         else { rule.fromId = pri; rule.toId = secondary; }
       }
       FD.addRecurring(rule);
-    } else if (editId) {
-      FD.updateEntry(editId, { date: date, description: desc, kind: kind, lines: lines });
     } else {
-      FD.addEntry({ date: date, description: desc, kind: kind, lines: lines });
+      var savedId = editId;
+      if (editId) FD.updateEntry(editId, { date: date, description: desc, kind: kind, lines: lines });
+      else savedId = FD.addEntry({ date: date, description: desc, kind: kind, lines: lines }).id;
+      // Apply a receipt change (pendingAttachment: undefined=keep, null=remove, object=set).
+      if (typeof pendingAttachment !== "undefined" && savedId) {
+        if (pendingAttachment === null) FD.removeAttachment(savedId);
+        else FD.setAttachment(savedId, pendingAttachment);
+      }
     }
     txDialog.close(); refresh();
   }
+
+  // ----- Receipt attachments -----
+  function currentAttachment() {
+    if (typeof pendingAttachment !== "undefined") return pendingAttachment; // object or null
+    var eid = $("#tx-edit-id").value; return eid ? FD.getAttachment(eid) : null;
+  }
+  function renderTxAttach() {
+    var att = currentAttachment(), wrap = $("#tx-attach");
+    if (att && att.dataUrl) {
+      wrap.innerHTML = '<div class="attach-preview"><img id="tx-attach-thumb" alt="receipt" /><div class="attach-actions">' +
+        '<button type="button" class="btn btn-ghost btn-sm" id="tx-attach-view">View</button>' +
+        '<button type="button" class="btn btn-ghost btn-sm" id="tx-attach-replace">Replace</button>' +
+        '<button type="button" class="btn btn-danger btn-sm" id="tx-attach-remove">Remove</button></div></div>';
+      $("#tx-attach-thumb").src = att.dataUrl;
+      $("#tx-attach-view").addEventListener("click", function () { openLightbox(att.dataUrl); });
+      $("#tx-attach-thumb").addEventListener("click", function () { openLightbox(att.dataUrl); });
+      $("#tx-attach-replace").addEventListener("click", function () { $("#tx-attach-input").click(); });
+      $("#tx-attach-remove").addEventListener("click", function () { pendingAttachment = null; renderTxAttach(); });
+    } else {
+      wrap.innerHTML = '<button type="button" class="btn btn-ghost btn-sm" id="tx-attach-add">📎 Attach receipt</button>';
+      $("#tx-attach-add").addEventListener("click", function () { $("#tx-attach-input").click(); });
+    }
+  }
+  function downscaleImage(file, cb) {
+    var reader = new FileReader();
+    reader.onload = function () {
+      var img = new Image();
+      img.onload = function () {
+        var max = 1200, scale = Math.min(1, max / Math.max(img.width, img.height));
+        var w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+        var c = document.createElement("canvas"); c.width = w; c.height = h;
+        c.getContext("2d").drawImage(img, 0, 0, w, h);
+        cb(c.toDataURL("image/jpeg", 0.82));
+      };
+      img.onerror = function () { alert("That image couldn't be read."); };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  }
+  function handleAttachFile(ev) {
+    var file = ev.target.files && ev.target.files[0]; ev.target.value = "";
+    if (!file) return;
+    if (!/^image\//.test(file.type)) { alert("Please choose an image file."); return; }
+    downscaleImage(file, function (dataUrl) { pendingAttachment = { name: file.name, type: "image/jpeg", dataUrl: dataUrl }; renderTxAttach(); });
+  }
+  function openLightbox(url) { $("#img-lightbox-img").src = url; $("#img-lightbox").showModal(); }
+  function closeLightbox() { var d = $("#img-lightbox"); if (d.open) d.close(); $("#img-lightbox-img").src = ""; }
   function deleteTx() {
     var editId = $("#tx-edit-id").value; if (!editId) return;
     if (!confirm("Delete this transaction?")) return;
@@ -1189,7 +1245,13 @@
     $("#tx-delete").addEventListener("click", deleteTx);
     $("#tx-split-toggle").addEventListener("click", toggleSplitMode);
     $("#tx-add-split").addEventListener("click", function () { addSplitRow(); });
-    $("#tx-repeat").addEventListener("change", function () { $("#tx-repeat-until-field").style.display = this.value === "none" ? "none" : ""; });
+    $("#tx-repeat").addEventListener("change", function () {
+      var repeating = this.value !== "none";
+      $("#tx-repeat-until-field").style.display = repeating ? "" : "none";
+      $("#tx-attach-field").style.display = repeating ? "none" : ""; // recurring rules don't carry receipts
+    });
+    $("#tx-attach-input").addEventListener("change", handleAttachFile);
+    $("#img-lightbox").addEventListener("click", closeLightbox);
     $all('input[name="tx-kind"]').forEach(function (r) {
       r.addEventListener("change", function () {
         var k = currentKind(); populateTxSelects(k); updateSplitAvailability(k);

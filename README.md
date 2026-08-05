@@ -28,6 +28,9 @@ views) and **mobile** (bottom tab bar with a quick-add button, stacked layouts).
 - **Recurring transactions** — set an expense, income, or transfer to repeat
   weekly, biweekly, monthly, or yearly; occurrences post automatically (with
   backfill), and dedupe safely across synced devices.
+- **Receipt attachments** — attach a photo to any transaction; it's downscaled,
+  shown as a thumbnail (tap to view full size), flagged with a 📎 in the ledger,
+  and synced with your data.
 - **Reports**
   - **Profit & Loss** for this month, last month, this/last year, all time, or a
     custom date range — grouped by category with subcategory breakdowns, with an

@@ -328,6 +328,15 @@ input:focus, select:focus { outline: none; border-color: var(--primary); box-sha
 .trend-wrap { width: 100%; overflow-x: auto; }
 .trend-wrap canvas { display: block; }
 
+/* Receipt attachments */
+.attach-preview { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.attach-preview img { width: 72px; height: 72px; object-fit: cover; border-radius: 10px; border: 1px solid var(--border); cursor: zoom-in; }
+.attach-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.tx-clip { margin-left: 4px; }
+dialog.lightbox { border: none; background: transparent; padding: 0; max-width: 100vw; max-height: 100vh; cursor: zoom-out; overflow: visible; }
+dialog.lightbox::backdrop { background: rgba(0,0,0,0.82); }
+dialog.lightbox img { display: block; max-width: 96vw; max-height: 92vh; border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); }
+
 /* ---------- Settings ---------- */
 .settings-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
 .settings-row:last-child { border-bottom: none; }
