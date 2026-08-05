@@ -57,6 +57,8 @@
       { id: "inc-salary", name: "Salary", type: "income", icon: "💼" },
       { id: "inc-freelance", name: "Freelance", type: "income", icon: "🧑‍💻" },
       { id: "inc-investment", name: "Investment", type: "income", icon: "📈" },
+      { id: "inc-inv-dividends", name: "Dividends", type: "income", icon: "💰", parentId: "inc-investment" },
+      { id: "inc-inv-gains", name: "Capital Gains", type: "income", icon: "📊", parentId: "inc-investment" },
       { id: "inc-interest", name: "Interest", type: "income", icon: "🏛️" },
       { id: "inc-gift", name: "Gifts Received", type: "income", icon: "🎁" },
       { id: "inc-other", name: "Other Income", type: "income", icon: "➕" },
@@ -78,10 +80,27 @@
       { id: "exp-transport-transit", name: "Public Transit", type: "expense", icon: "🚌", parentId: "exp-transport" },
 
       { id: "exp-dining", name: "Dining Out", type: "expense", icon: "🍽️" },
+      { id: "exp-dining-restaurants", name: "Restaurants", type: "expense", icon: "🍽️", parentId: "exp-dining" },
+      { id: "exp-dining-coffee", name: "Coffee", type: "expense", icon: "☕", parentId: "exp-dining" },
+      { id: "exp-dining-takeout", name: "Takeout", type: "expense", icon: "🥡", parentId: "exp-dining" },
+
       { id: "exp-entertainment", name: "Entertainment", type: "expense", icon: "🎬" },
+      { id: "exp-ent-streaming", name: "Streaming", type: "expense", icon: "📺", parentId: "exp-entertainment" },
+      { id: "exp-ent-games", name: "Games", type: "expense", icon: "🎮", parentId: "exp-entertainment" },
+      { id: "exp-ent-events", name: "Events", type: "expense", icon: "🎟️", parentId: "exp-entertainment" },
+
       { id: "exp-health", name: "Health", type: "expense", icon: "🏥" },
+      { id: "exp-health-doctor", name: "Doctor", type: "expense", icon: "🩺", parentId: "exp-health" },
+      { id: "exp-health-pharmacy", name: "Pharmacy", type: "expense", icon: "💊", parentId: "exp-health" },
+      { id: "exp-health-fitness", name: "Fitness", type: "expense", icon: "🏋️", parentId: "exp-health" },
+
       { id: "exp-insurance", name: "Insurance", type: "expense", icon: "🛡️" },
+
       { id: "exp-shopping", name: "Shopping", type: "expense", icon: "🛍️" },
+      { id: "exp-shop-clothing", name: "Clothing", type: "expense", icon: "👕", parentId: "exp-shopping" },
+      { id: "exp-shop-electronics", name: "Electronics", type: "expense", icon: "💻", parentId: "exp-shopping" },
+      { id: "exp-shop-home", name: "Home Goods", type: "expense", icon: "🛋️", parentId: "exp-shopping" },
+
       { id: "exp-education", name: "Education", type: "expense", icon: "🎓" },
       { id: "exp-subscriptions", name: "Subscriptions", type: "expense", icon: "🔁" },
       { id: "exp-other", name: "Other Expense", type: "expense", icon: "📦" },

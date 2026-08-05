@@ -13,9 +13,11 @@ views) and **mobile** (bottom tab bar with a quick-add button, stacked layouts).
 - **Double-entry engine** — every transaction posts balanced debits and credits,
   so reports tie out the way real bookkeeping does.
 - **Chart of Accounts with subcategories** — accounts grouped into Assets,
-  Liabilities, Equity, Income, and Expenses, each with a live balance. Nest
-  **subcategories** under a parent (e.g. Groceries → Food, Household); parents
-  roll up their children in balances and reports.
+  Liabilities, Equity, Income, and Expenses, each with a live balance. Comes with
+  sample **subcategories** (e.g. Groceries → Food/Household, Dining → Restaurants/
+  Coffee/Takeout) that you can freely add to (an **"+ Subcategory"** button on any
+  category) or delete; parents roll up their children in balances and reports.
+  Pick any account's **icon from an emoji picker** (or type your own).
 - **Friendly entry** — add an **Expense**, **Income**, or **Transfer** through a
   simple form; the app builds the underlying journal entry for you.
 - **Split transactions** — divide one transaction across several

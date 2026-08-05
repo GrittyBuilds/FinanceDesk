@@ -371,10 +371,12 @@
     var stmt = stmtBalances[id];
     var diff = (typeof stmt === "number") ? FD.round2(stmt - clearedBal) : null;
 
+    var canAddSub = !a.parentId && ["expense", "income", "asset", "liability"].indexOf(a.type) !== -1;
     var html = '<div class="card"><div class="register-head">' +
       '<button class="btn btn-ghost btn-sm" id="reg-back">← Accounts</button>' +
       '<div class="reg-title"><span class="acct-ico">' + escapeHTML(a.icon) + '</span><h2>' + escapeHTML(a.name) + '</h2></div>' +
       '<span class="reg-balance">' + money(current) + '</span>' +
+      (canAddSub ? '<button class="btn btn-ghost btn-sm" id="reg-add-sub">+ Subcategory</button>' : "") +
       '<button class="btn btn-ghost btn-sm" id="reg-reconcile">' + (reconcileMode ? "Done" : "Reconcile") + '</button>' +
       '<button class="btn btn-ghost btn-sm" id="reg-edit">Edit account</button></div>';
 
@@ -408,6 +410,7 @@
     el.innerHTML = html;
     $("#reg-back").addEventListener("click", function () { acctView.id = null; reconcileMode = false; renderAccounts(); });
     $("#reg-edit").addEventListener("click", function () { openAccountDialog(id); });
+    if (canAddSub) $("#reg-add-sub").addEventListener("click", function () { openAccountDialog(null, { type: a.type, parentId: id }); });
     $("#reg-reconcile").addEventListener("click", function () { reconcileMode = !reconcileMode; renderRegister(id); });
     if (reconcileMode) {
       $("#reg-stmt").addEventListener("change", function () {
@@ -1106,7 +1109,22 @@
     var hints = { asset: "Things you own — bank accounts, cash, investments, property.", liability: "Things you owe — credit cards, loans, mortgage.", income: "A source of income to categorize deposits.", expense: "A spending category for your expenses.", equity: "Owner's equity / net worth accounts." };
     $("#acct-type-hint").textContent = hints[type] || "";
   }
-  function openAccountDialog(editId) {
+  // Emoji choices for the icon picker (finance + everyday life).
+  var ICONS = ("🏦 💰 💵 💳 🪙 💸 🧾 📈 📉 🏛️ 🤑 🏠 🏡 🔑 💡 ⚡ 🔥 🚰 💧 🌐 📶 📱 ☎️ 🗑️ 🛒 🍽️ 🍎 🥦 🍞 ☕ 🍕 🍔 🍺 🍷 🧻 🧼 🚗 ⛽ 🚌 🚕 🚆 ✈️ 🚲 🅿️ 🏥 💊 🩺 🦷 💪 🧘 🏋️ 🎬 🎮 🎵 🎨 🎟️ 🎉 📺 🎧 🏖️ 🛍️ 👕 👟 💻 🎁 📚 🐶 🐱 👶 🎓 💇 📦 🔁 🛡️ 💼 🧑‍💻 🏆 ⭐ ❤️ ✅ 🔔 ⚖️ 🌟").split(" ");
+  function renderIconGrid() {
+    var grid = $("#acct-icon-grid"), current = ($("#acct-icon").value || "").trim();
+    grid.innerHTML = ICONS.map(function (e) {
+      return '<button type="button" class="icon-opt' + (e === current ? " sel" : "") + '" data-emoji="' + e + '">' + e + "</button>";
+    }).join("");
+    $all(".icon-opt", grid).forEach(function (btn) {
+      btn.addEventListener("click", function () { $("#acct-icon").value = btn.dataset.emoji; refreshIconSelection(); });
+    });
+  }
+  function refreshIconSelection() {
+    var current = ($("#acct-icon").value || "").trim();
+    $all("#acct-icon-grid .icon-opt").forEach(function (b) { b.classList.toggle("sel", b.dataset.emoji === current); });
+  }
+  function openAccountDialog(editId, preset) {
     $("#acct-edit-id").value = editId || ""; $("#account-form").reset();
     var typeSel = $("#acct-type"), del = $("#acct-delete");
     if (editId) {
@@ -1126,11 +1144,13 @@
       var used = FD.accountHasEntries(editId) || FD.hasChildren(FD.state.accounts, editId);
       del.hidden = false; del.disabled = used; del.textContent = used ? "In use — can't delete" : "Delete";
     } else {
-      $("#account-dialog-title").textContent = "New Account";
-      typeSel.disabled = false; typeSel.value = "asset";
+      $("#account-dialog-title").textContent = preset && preset.parentId ? "New Subcategory" : "New Account";
+      typeSel.disabled = false; typeSel.value = (preset && preset.type) || "asset";
       $("#acct-opening-date").value = todayISO(); del.hidden = true;
       updateAccountDialogForType();
+      if (preset && preset.parentId) { $("#acct-parent").value = preset.parentId; }
     }
+    renderIconGrid();
     accountDialog.showModal();
     setTimeout(function () { $("#acct-name").focus(); }, 30);
   }
@@ -1264,6 +1284,7 @@
     $("#account-form").addEventListener("submit", submitAccount);
     $("#acct-delete").addEventListener("click", deleteAccountAction);
     $("#acct-type").addEventListener("change", updateAccountDialogForType);
+    $("#acct-icon").addEventListener("input", refreshIconSelection);
     $("#pin-form").addEventListener("submit", submitPin);
     $("#e2ee-form").addEventListener("submit", submitE2EE);
     $all("[data-close]").forEach(function (btn) { btn.addEventListener("click", function () { btn.closest("dialog").close(); }); });
