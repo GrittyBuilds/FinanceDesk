@@ -10,7 +10,7 @@
     "#00bcd4", "#ff6f91", "#8bc34a", "#795548", "#5c6bc0",
   ];
 
-  var report = { type: "pl", period: "this-month", from: null, to: null, asOf: null, compare: false };
+  var report = { type: "pl", period: "this-month", from: null, to: null, asOf: null, compare: false, compareAsOf: null };
   var txFilter = { type: "all", accountId: "all" };
   var acctView = { id: null };     // when set, Accounts shows that account's register
   var txSplitMode = false;
@@ -388,9 +388,17 @@
   function renderReportControls() {
     var wrap = $("#r-period-wrap");
     if (report.type === "bs") {
-      wrap.innerHTML = '<label class="muted" style="display:inline-flex;align-items:center;gap:8px">As of <input type="date" id="r-asof" /></label>';
+      wrap.innerHTML = '<label class="muted" style="display:inline-flex;align-items:center;gap:8px">As of <input type="date" id="r-asof" /></label>' +
+        '<label class="switch-lite"><input type="checkbox" id="r-compare" /> Compare</label>' +
+        (report.compare ? '<label class="muted" style="display:inline-flex;align-items:center;gap:8px">vs <input type="date" id="r-compare-asof" /></label>' : "");
       $("#r-asof").value = report.asOf || todayISO();
       $("#r-asof").addEventListener("change", function () { report.asOf = this.value; renderReportBody(); });
+      $("#r-compare").checked = !!report.compare;
+      $("#r-compare").addEventListener("change", function () { report.compare = this.checked; renderReportControls(); renderReportBody(); });
+      if (report.compare) {
+        $("#r-compare-asof").value = report.compareAsOf || defaultPriorAsOf(report.asOf || todayISO());
+        $("#r-compare-asof").addEventListener("change", function () { report.compareAsOf = this.value; renderReportBody(); });
+      }
       return;
     }
     wrap.innerHTML = '<select id="r-period">' +
@@ -398,7 +406,7 @@
       '<option value="this-year">This year</option><option value="last-year">Last year</option>' +
       '<option value="all">All time</option><option value="custom">Custom…</option></select>' +
       '<span id="r-custom" style="display:none;gap:8px"><input type="date" id="r-from" /><input type="date" id="r-to" /></span>' +
-      (report.type === "pl" ? '<label class="switch-lite"><input type="checkbox" id="r-compare" /> Compare to prior</label>' : "");
+      '<label class="switch-lite"><input type="checkbox" id="r-compare" /> Compare to prior</label>';
     $("#r-period").value = report.period;
     var custom = $("#r-custom"); custom.style.display = report.period === "custom" ? "inline-flex" : "none";
     if (report.from) $("#r-from").value = report.from; if (report.to) $("#r-to").value = report.to;
@@ -493,32 +501,58 @@
       (compare ? '<span class="tabular muted">' + signedMoney(pr.netIncome) + '</span><span class="tabular ' + (netD >= 0 ? "pos" : "neg") + '">' + signedMoney(netD) + "</span>" : "") +
       "</div></div>";
   }
+  function defaultPriorAsOf(asOf) { return (parseInt(asOf.slice(0, 4), 10) - 1) + asOf.slice(4); } // one year earlier
+  // Shared compare cells: cur value, prior value, favorable direction, and a formatter.
+  function cmpCells(cur, prv, fav, compare, fmt) {
+    fmt = fmt || money;
+    var h = '<span class="r-amt tabular">' + fmt(cur) + "</span>";
+    if (compare) { var d = FD.round2(cur - prv); h += '<span class="r-amt tabular muted">' + fmt(prv) + '</span><span class="r-amt tabular ' + (Math.abs(d) < 0.005 ? "" : (d * fav >= 0 ? "pos" : "neg")) + '">' + signedMoney(d) + "</span>"; }
+    return h;
+  }
+  function cmpTotal(kindCls, label, cur, prv, fav, compare, fmt) {
+    fmt = fmt || money;
+    var h = '<div class="' + kindCls + '"><span>' + label + '</span><span class="tabular">' + fmt(cur) + "</span>";
+    if (compare) { var d = FD.round2(cur - prv); h += '<span class="tabular muted">' + fmt(prv) + '</span><span class="tabular ' + (Math.abs(d) < 0.005 ? "" : (d * fav >= 0 ? "pos" : "neg")) + '">' + signedMoney(d) + "</span>"; }
+    return h + "</div>";
+  }
+  function colhead(a, b) { return '<div class="report-colhead"><span></span><span>' + a + '</span><span>' + b + '</span><span>Change</span></div>'; }
+
   function renderBS() {
     var asOf = report.asOf || todayISO(), r = FD.balanceSheet(FD.state.journal, FD.state.accounts, asOf);
-    var equity = hierLines(r.equityAccounts) + '<div class="report-line"><span class="r-name">📊 Retained Earnings (Net Income)</span><span class="r-amt tabular">' + money(r.netIncome) + "</span></div>";
-    return '<div class="report"><div class="report-title"><h3>Balance Sheet</h3><div class="muted">As of ' + fmtDate(asOf) + "</div></div>" +
-      '<div class="report-section-head">Assets</div>' + hierLines(r.assets) +
-      '<div class="report-subtotal"><span>Total Assets</span><span class="tabular">' + money(r.totalAssets) + "</span></div>" +
-      '<div class="report-section-head">Liabilities</div>' + hierLines(r.liabilities) +
-      '<div class="report-subtotal"><span>Total Liabilities</span><span class="tabular">' + money(r.totalLiabilities) + "</span></div>" +
+    var compare = !!report.compare, priorAsOf = compare ? (report.compareAsOf || defaultPriorAsOf(asOf)) : null;
+    var pr = compare ? FD.balanceSheet(FD.state.journal, FD.state.accounts, priorAsOf) : null;
+    var prevMap = {};
+    if (compare) pr.assets.concat(pr.liabilities, pr.equityAccounts).forEach(function (x) { prevMap[x.account.id] = x.amount; });
+    var equity = hierLines(r.equityAccounts, compare ? { prev: prevMap, favorable: 1 } : null) +
+      '<div class="report-line"><span class="r-name">📊 Retained Earnings (Net Income)</span>' + cmpCells(r.netIncome, compare ? pr.netIncome : 0, 1, compare) + "</div>";
+    return '<div class="report' + (compare ? " compare" : "") + '"><div class="report-title"><h3>Balance Sheet</h3><div class="muted">As of ' + fmtDate(asOf) + (compare ? " &nbsp;vs&nbsp; " + fmtDate(priorAsOf) : "") + "</div></div>" +
+      (compare ? colhead(fmtDateShort(asOf), fmtDateShort(priorAsOf)) : "") +
+      '<div class="report-section-head">Assets</div>' + hierLines(r.assets, compare ? { prev: prevMap, favorable: 1 } : null) +
+      cmpTotal("report-subtotal", "Total Assets", r.totalAssets, compare ? pr.totalAssets : 0, 1, compare) +
+      '<div class="report-section-head">Liabilities</div>' + hierLines(r.liabilities, compare ? { prev: prevMap, favorable: -1 } : null) +
+      cmpTotal("report-subtotal", "Total Liabilities", r.totalLiabilities, compare ? pr.totalLiabilities : 0, -1, compare) +
       '<div class="report-section-head">Equity</div>' + equity +
-      '<div class="report-subtotal"><span>Total Equity</span><span class="tabular">' + money(r.totalEquity) + "</span></div>" +
-      '<div class="report-total"><span>Liabilities + Equity</span><span class="tabular">' + money(r.totalLiabilitiesAndEquity) + "</span></div>" +
+      cmpTotal("report-subtotal", "Total Equity", r.totalEquity, compare ? pr.totalEquity : 0, 1, compare) +
+      cmpTotal("report-total", "Liabilities + Equity", r.totalLiabilitiesAndEquity, compare ? pr.totalLiabilitiesAndEquity : 0, 1, compare) +
       '<div class="report-check ' + (r.balanced ? "ok" : "bad") + '">' + (r.balanced ? "✓ In balance — Assets = Liabilities + Equity" : "⚠ Out of balance by " + money(r.totalAssets - r.totalLiabilitiesAndEquity)) + "</div></div>";
   }
   function renderCF() {
     var p = resolvePeriod(), r = FD.cashFlow(FD.state.journal, FD.state.accounts, p.from, p.to);
-    var netOperating = FD.round2(r.groups.income + r.groups.expense);
-    function row(name, amt, cls) { return '<div class="report-line ' + (cls || "") + '"><span class="r-name">' + name + '</span><span class="r-amt tabular">' + signedMoney(amt) + "</span></div>"; }
-    return '<div class="report"><div class="report-title"><h3>Cash Flow</h3><div class="muted">' + periodLabel(p) + "</div></div>" +
-      '<div class="report-line"><span class="r-name">Beginning cash &amp; bank</span><span class="r-amt tabular">' + money(r.beginning) + "</span></div>" +
+    var pp = (report.compare && report.period !== "all") ? previousPeriod() : null;
+    var compare = !!pp, pr = pp ? FD.cashFlow(FD.state.journal, FD.state.accounts, pp.from, pp.to) : null;
+    var netOp = FD.round2(r.groups.income + r.groups.expense), netOpPrev = compare ? FD.round2(pr.groups.income + pr.groups.expense) : 0;
+    var g = function (k) { return compare ? pr.groups[k] : 0; };
+    function row(name, amt, pv) { return '<div class="report-line"><span class="r-name">' + name + "</span>" + cmpCells(amt, pv, 1, compare, signedMoney) + "</div>"; }
+    return '<div class="report' + (compare ? " compare" : "") + '"><div class="report-title"><h3>Cash Flow</h3><div class="muted">' + periodLabel(p) + (compare ? " &nbsp;vs&nbsp; " + periodLabel(pp) : "") + "</div></div>" +
+      (compare ? colhead("This period", "Prior") : "") +
+      '<div class="report-line"><span class="r-name">Beginning cash &amp; bank</span>' + cmpCells(r.beginning, compare ? pr.beginning : 0, 1, compare) + "</div>" +
       '<div class="report-section-head">Operating</div>' +
-      row("Cash from income", r.groups.income) + row("Cash for expenses", r.groups.expense) +
-      '<div class="report-subtotal"><span>Net operating cash</span><span class="tabular">' + signedMoney(netOperating) + "</span></div>" +
+      row("Cash from income", r.groups.income, g("income")) + row("Cash for expenses", r.groups.expense, g("expense")) +
+      cmpTotal("report-subtotal", "Net operating cash", netOp, netOpPrev, 1, compare, signedMoney) +
       '<div class="report-section-head">Financing &amp; Other</div>' +
-      row("Loans / credit cards", r.groups.financing) + row("Owner equity", r.groups.equity) +
-      '<div class="report-total ' + (r.netChange >= 0 ? "pos" : "neg") + '"><span>Net change in cash</span><span class="tabular">' + signedMoney(r.netChange) + "</span></div>" +
-      '<div class="report-line"><span class="r-name">Ending cash &amp; bank</span><span class="r-amt tabular">' + money(r.ending) + "</span></div>" +
+      row("Loans / credit cards", r.groups.financing, g("financing")) + row("Owner equity", r.groups.equity, g("equity")) +
+      cmpTotal("report-total " + (r.netChange >= 0 ? "pos" : "neg"), "Net change in cash", r.netChange, compare ? pr.netChange : 0, 1, compare, signedMoney) +
+      '<div class="report-line"><span class="r-name">Ending cash &amp; bank</span>' + cmpCells(r.ending, compare ? pr.ending : 0, 1, compare) + "</div>" +
       '<div class="report-check ' + (r.reconciles ? "ok" : "bad") + '">' + (r.reconciles ? "✓ Reconciles to account balances" : "⚠ Does not reconcile") + "</div></div>";
   }
 

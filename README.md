@@ -34,9 +34,9 @@ views) and **mobile** (bottom tab bar with a quick-add button, stacked layouts).
     optional **Compare to prior** column (prior month/year, or the same-length
     window before a custom range) showing the change.
   - **Cash Flow** — change in cash & bank over a period (operating, financing,
-    equity), reconciled to your account balances.
+    equity), reconciled to your account balances; compares to the prior period.
   - **Balance Sheet** as of any date, with a live "in balance" check
-    (Assets = Liabilities + Equity).
+    (Assets = Liabilities + Equity); compares to any prior date.
 - **Dashboard** — net worth, income/expense/net for the month, a spending donut,
   and recent activity.
 - **Monthly budgets** — per-category and per-subcategory limits with progress
@@ -180,5 +180,4 @@ Nothing is sent anywhere. Clearing your browser data removes it, so use
 
 ## Roadmap ideas
 
-- Comparison columns for Cash Flow and Balance Sheet (P&L already compares)
 - Field-level merge for transactions (accounts already merge per-field)
