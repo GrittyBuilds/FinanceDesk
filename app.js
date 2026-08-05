@@ -96,14 +96,93 @@
         tile("Expenses this month", money(pl.totalExpense), monthLabel(), "neg") +
         tile("Net this month", signedMoney(pl.netIncome), pl.netIncome >= 0 ? "Surplus" : "Deficit", pl.netIncome >= 0 ? "pos" : "neg") +
       "</div>" +
+      '<div class="card"><h2>Net worth <span class="muted" style="font-weight:400;font-size:0.85rem">· last 12 months</span></h2><div id="nw-chart" class="trend-wrap"></div></div>' +
+      '<div class="card"><h2>Income vs expenses <span class="muted" style="font-weight:400;font-size:0.85rem">· last 12 months</span></h2><div id="ie-chart" class="trend-wrap"></div></div>' +
       '<div class="dash-grid">' +
         '<div class="card"><h2>Spending this month</h2><div id="dash-chart-wrap"></div></div>' +
         '<div class="card"><div class="card-head"><h2>Recent activity</h2><a href="#transactions" class="btn btn-ghost btn-sm">View all</a></div><ul class="tx-list" id="dash-recent"></ul><div id="dash-recent-empty" class="empty-state" hidden>No transactions yet.</div></div>' +
       "</div>";
     renderDonut($("#dash-chart-wrap"), mr.from, mr.to);
+    renderNetWorthTrend($("#nw-chart"));
+    renderIncomeExpenseTrend($("#ie-chart"));
     var entries = FD.state.journal.slice().sort(sortEntries).slice(0, 6);
     var list = $("#dash-recent"); $("#dash-recent-empty").hidden = entries.length > 0;
     entries.forEach(function (e) { list.appendChild(txRow(e)); });
+  }
+
+  // ----- Trend charts (canvas, last 12 months) -----
+  function last12Months() {
+    var arr = [], now = new Date();
+    for (var i = 11; i >= 0; i--) {
+      var d = new Date(now.getFullYear(), now.getMonth() - i, 1), y = d.getFullYear(), m = d.getMonth(), r = monthRange(y, m);
+      arr.push({ label: d.toLocaleDateString("en-US", { month: "short" }), from: r.from, to: r.to });
+    }
+    return arr;
+  }
+  function shortMoney(v) {
+    var a = Math.abs(v);
+    if (a >= 1000) return (v < 0 ? "−$" : "$") + (a / 1000).toFixed(a >= 10000 ? 0 : 1) + "k";
+    return (v < 0 ? "−$" : "$") + a.toFixed(0);
+  }
+  function makeCanvas(wrap, h) {
+    var w = Math.max(260, Math.min(wrap.clientWidth || 600, 900)), dpr = window.devicePixelRatio || 1;
+    wrap.innerHTML = "";
+    var c = document.createElement("canvas");
+    c.width = w * dpr; c.height = h * dpr; c.style.width = w + "px"; c.style.height = h + "px";
+    wrap.appendChild(c);
+    var ctx = c.getContext("2d"); ctx.scale(dpr, dpr);
+    return { ctx: ctx, w: w, h: h };
+  }
+  function renderNetWorthTrend(wrap) {
+    var j = FD.state.journal, accts = FD.state.accounts, months = last12Months();
+    function nwAt(to) {
+      var a = FD.accountsByType(accts, "asset").reduce(function (s, x) { return s + FD.balance(j, x, { to: to }); }, 0);
+      var l = FD.accountsByType(accts, "liability").reduce(function (s, x) { return s + FD.balance(j, x, { to: to }); }, 0);
+      return FD.round2(a - l);
+    }
+    var vals = months.map(function (m) { return nwAt(m.to); });
+    if (vals.every(function (v) { return Math.abs(v) < 0.005; })) { wrap.innerHTML = '<div class="empty-state">No balances yet.</div>'; return; }
+    var g = makeCanvas(wrap, 200), ctx = g.ctx, padL = 52, padR = 12, padT = 14, padB = 22;
+    var lo = Math.min(0, Math.min.apply(null, vals)), hi = Math.max.apply(null, vals); if (hi === lo) hi = lo + 1;
+    var plotW = g.w - padL - padR, plotH = g.h - padT - padB;
+    function X(i) { return padL + (months.length === 1 ? plotW / 2 : (i / (months.length - 1)) * plotW); }
+    function Y(v) { return padT + plotH - ((v - lo) / (hi - lo)) * plotH; }
+    var grid = cssVar("--border", "#ddd"), muted = cssVar("--text-muted", "#888"), primary = cssVar("--primary", "#2f6df6");
+    ctx.strokeStyle = grid; ctx.fillStyle = muted; ctx.font = "10px -apple-system, sans-serif"; ctx.textBaseline = "middle";
+    [hi, (hi + lo) / 2, lo].forEach(function (v) { var y = Y(v); ctx.globalAlpha = 0.5; ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(g.w - padR, y); ctx.stroke(); ctx.globalAlpha = 1; ctx.textAlign = "right"; ctx.fillText(shortMoney(v), padL - 6, y); });
+    // area + line
+    ctx.beginPath(); months.forEach(function (m, i) { var x = X(i), y = Y(vals[i]); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
+    ctx.lineTo(X(months.length - 1), Y(lo)); ctx.lineTo(X(0), Y(lo)); ctx.closePath();
+    ctx.fillStyle = primary; ctx.globalAlpha = 0.12; ctx.fill(); ctx.globalAlpha = 1;
+    ctx.beginPath(); months.forEach(function (m, i) { var x = X(i), y = Y(vals[i]); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
+    ctx.strokeStyle = primary; ctx.lineWidth = 2; ctx.stroke();
+    months.forEach(function (m, i) { ctx.beginPath(); ctx.arc(X(i), Y(vals[i]), 2.5, 0, Math.PI * 2); ctx.fillStyle = primary; ctx.fill(); });
+    ctx.fillStyle = muted; ctx.textAlign = "center"; ctx.textBaseline = "top";
+    months.forEach(function (m, i) { if (i % 2 === 0 || months.length <= 6) ctx.fillText(m.label, X(i), g.h - padB + 6); });
+  }
+  function renderIncomeExpenseTrend(wrap) {
+    var j = FD.state.journal, accts = FD.state.accounts, months = last12Months();
+    var data = months.map(function (m) { var pl = FD.profitAndLoss(j, accts, m.from, m.to); return { inc: pl.totalIncome, exp: pl.totalExpense }; });
+    var hi = Math.max(1, Math.max.apply(null, data.map(function (d) { return Math.max(d.inc, d.exp); })));
+    if (data.every(function (d) { return d.inc < 0.005 && d.exp < 0.005; })) { wrap.innerHTML = '<div class="empty-state">No income or expenses yet.</div>'; return; }
+    var g = makeCanvas(wrap, 200), ctx = g.ctx, padL = 52, padR = 12, padT = 14, padB = 22;
+    var plotW = g.w - padL - padR, plotH = g.h - padT - padB;
+    function Y(v) { return padT + plotH - (v / hi) * plotH; }
+    var grid = cssVar("--border", "#ddd"), muted = cssVar("--text-muted", "#888"), inc = cssVar("--income", "#1fae7a"), exp = cssVar("--expense", "#e5484d");
+    ctx.strokeStyle = grid; ctx.fillStyle = muted; ctx.font = "10px -apple-system, sans-serif"; ctx.textBaseline = "middle"; ctx.textAlign = "right";
+    [hi, hi / 2, 0].forEach(function (v) { var y = Y(v); ctx.globalAlpha = 0.5; ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(g.w - padR, y); ctx.stroke(); ctx.globalAlpha = 1; ctx.fillText(shortMoney(v), padL - 6, y); });
+    var slot = plotW / months.length, bw = Math.min(10, slot / 3);
+    months.forEach(function (m, i) {
+      var cx = padL + slot * i + slot / 2;
+      ctx.fillStyle = inc; ctx.fillRect(cx - bw - 1, Y(data[i].inc), bw, padT + plotH - Y(data[i].inc));
+      ctx.fillStyle = exp; ctx.fillRect(cx + 1, Y(data[i].exp), bw, padT + plotH - Y(data[i].exp));
+    });
+    ctx.fillStyle = muted; ctx.textAlign = "center"; ctx.textBaseline = "top";
+    months.forEach(function (m, i) { if (i % 2 === 0 || months.length <= 6) ctx.fillText(m.label, padL + slot * i + slot / 2, g.h - padB + 6); });
+    // legend
+    ctx.textAlign = "left"; ctx.textBaseline = "middle";
+    ctx.fillStyle = inc; ctx.fillRect(padL, 4, 9, 9); ctx.fillStyle = muted; ctx.fillText("Income", padL + 13, 9);
+    ctx.fillStyle = exp; ctx.fillRect(padL + 70, 4, 9, 9); ctx.fillStyle = muted; ctx.fillText("Expenses", padL + 83, 9);
   }
   function tile(label, value, sub, cls) {
     return '<div class="tile"><span class="tile-label">' + escapeHTML(label) + '</span><span class="tile-value ' + (cls || "") + '">' + escapeHTML(value) + '</span><span class="tile-sub">' + escapeHTML(sub) + "</span></div>";

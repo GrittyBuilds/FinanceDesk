@@ -37,8 +37,9 @@ views) and **mobile** (bottom tab bar with a quick-add button, stacked layouts).
     equity), reconciled to your account balances; compares to the prior period.
   - **Balance Sheet** as of any date, with a live "in balance" check
     (Assets = Liabilities + Equity); compares to any prior date.
-- **Dashboard** — net worth, income/expense/net for the month, a spending donut,
-  and recent activity.
+- **Dashboard** — net worth, income/expense/net for the month, a **net-worth
+  trend** line and **12-month income-vs-expense** bars, a spending donut, and
+  recent activity.
 - **Monthly budgets** — per-category and per-subcategory limits with progress
   bars and over-limit warnings.
 - **Backup & restore** — **CSV** export/import for transactions, and full **JSON**
