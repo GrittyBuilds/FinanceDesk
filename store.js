@@ -371,9 +371,12 @@
   }
 
   function addAccount(fields) {
+    var t = nowMs();
     var acct = {
       id: genId("a"), name: fields.name, type: fields.type,
-      icon: fields.icon || defaultIcon(fields.type), archived: false, updatedAt: nowMs(),
+      icon: fields.icon || defaultIcon(fields.type), archived: false, updatedAt: t,
+      // Per-field timestamps enable field-level merge across devices.
+      fieldTs: { name: t, icon: t, parentId: t, archived: t },
     };
     if (fields.parentId) acct.parentId = fields.parentId;
     state.accounts.push(acct);
@@ -392,18 +395,24 @@
   function updateAccount(id, fields) {
     var a = getAccount(id);
     if (!a) return null;
-    a.name = fields.name;
-    if (fields.icon) a.icon = fields.icon;
+    var t = nowMs();
+    if (!a.fieldTs) a.fieldTs = {};
+    a.name = fields.name; a.fieldTs.name = t;
+    if (fields.icon) { a.icon = fields.icon; a.fieldTs.icon = t; }
     // Reparent (same type, not itself, not creating depth > 1).
     if (typeof fields.parentId !== "undefined") {
       if (!fields.parentId) delete a.parentId;
       else if (fields.parentId !== id && !hasChildren(state.accounts, id)) a.parentId = fields.parentId;
+      a.fieldTs.parentId = t;
     }
-    a.updatedAt = nowMs();
+    a.updatedAt = t;
     persist();
     return a;
   }
-  function setArchived(id, archived) { var a = getAccount(id); if (a) { a.archived = !!archived; a.updatedAt = nowMs(); persist(); } }
+  function setArchived(id, archived) {
+    var a = getAccount(id);
+    if (a) { var t = nowMs(); a.archived = !!archived; if (!a.fieldTs) a.fieldTs = {}; a.fieldTs.archived = t; a.updatedAt = t; persist(); }
+  }
   function accountHasEntries(id) {
     return state.journal.some(function (e) { return e.lines.some(function (l) { return l.accountId === id; }); });
   }
@@ -647,10 +656,16 @@
   // Records are keyed by id; the higher updatedAt wins. A tombstone newer than a
   // record's updatedAt removes it (so deletes don't resurrect). Budgets are
   // last-write-wins as a unit via meta.budgetsUpdatedAt.
-  function mergeCollection(localArr, remoteArr, localTomb, remoteTomb) {
+  function mergeCollection(localArr, remoteArr, localTomb, remoteTomb, combine) {
     localTomb = localTomb || {}; remoteTomb = remoteTomb || {};
     var byId = {};
-    function consider(rec) { if (!rec || !rec.id) return; var ex = byId[rec.id]; if (!ex || (rec.updatedAt || 0) >= (ex.updatedAt || 0)) byId[rec.id] = rec; }
+    function consider(rec) {
+      if (!rec || !rec.id) return;
+      var ex = byId[rec.id];
+      if (!ex) byId[rec.id] = rec;
+      else if (combine) byId[rec.id] = combine(ex, rec);
+      else if ((rec.updatedAt || 0) >= (ex.updatedAt || 0)) byId[rec.id] = rec;
+    }
     (localArr || []).forEach(consider); (remoteArr || []).forEach(consider);
     var tomb = {};
     [localTomb, remoteTomb].forEach(function (t) { Object.keys(t).forEach(function (id) { tomb[id] = Math.max(tomb[id] || 0, t[id]); }); });
@@ -658,11 +673,27 @@
     Object.keys(byId).forEach(function (id) { var r = byId[id]; if ((tomb[id] || 0) > (r.updatedAt || 0)) return; out.push(r); });
     return { records: out, tombstones: tomb };
   }
+  // Field-level merge for two versions of the same account: each field is taken
+  // from whichever side edited it most recently (so a rename on one device and
+  // an archive on another both survive).
+  var ACCOUNT_FIELDS = ["name", "icon", "parentId", "archived"];
+  function fieldTs(rec, f) { return (rec.fieldTs && rec.fieldTs[f]) || rec.updatedAt || 0; }
+  function combineAccount(x, y) {
+    var merged = { id: x.id, type: x.type }, ft = {};
+    ACCOUNT_FIELDS.forEach(function (f) {
+      var xt = fieldTs(x, f), yt = fieldTs(y, f), src = yt > xt ? y : x;
+      if (typeof src[f] !== "undefined") merged[f] = src[f];
+      ft[f] = Math.max(xt, yt);
+    });
+    merged.fieldTs = ft;
+    merged.updatedAt = Math.max(x.updatedAt || 0, y.updatedAt || 0);
+    return merged;
+  }
   function merge(local, remote) {
     local = local || {}; remote = remote || {};
     var lt = normTombstones(local.tombstones), rt = normTombstones(remote.tombstones);
     var j = mergeCollection(local.journal, remote.journal, lt.journal, rt.journal);
-    var a = mergeCollection(local.accounts, remote.accounts, lt.accounts, rt.accounts);
+    var a = mergeCollection(local.accounts, remote.accounts, lt.accounts, rt.accounts, combineAccount);
     var rec = mergeCollection(local.recurring, remote.recurring, lt.recurring, rt.recurring);
     var lb = (local.meta && local.meta.budgetsUpdatedAt) || 0, rb = (remote.meta && remote.meta.budgetsUpdatedAt) || 0;
     // cleared flags: per key, the more recent (u) wins.
