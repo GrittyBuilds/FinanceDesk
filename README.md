@@ -30,7 +30,9 @@ views) and **mobile** (bottom tab bar with a quick-add button, stacked layouts).
   backfill), and dedupe safely across synced devices.
 - **Reports**
   - **Profit & Loss** for this month, last month, this/last year, all time, or a
-    custom date range — grouped by category with subcategory breakdowns.
+    custom date range — grouped by category with subcategory breakdowns, with an
+    optional **Compare to prior** column (prior month/year, or the same-length
+    window before a custom range) showing the change.
   - **Cash Flow** — change in cash & bank over a period (operating, financing,
     equity), reconciled to your account balances.
   - **Balance Sheet** as of any date, with a live "in balance" check
@@ -178,5 +180,5 @@ Nothing is sent anywhere. Clearing your browser data removes it, so use
 
 ## Roadmap ideas
 
-- Month-over-month and year-over-year report comparisons
+- Comparison columns for Cash Flow and Balance Sheet (P&L already compares)
 - Field-level merge for transactions (accounts already merge per-field)

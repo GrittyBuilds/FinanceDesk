@@ -10,7 +10,7 @@
     "#00bcd4", "#ff6f91", "#8bc34a", "#795548", "#5c6bc0",
   ];
 
-  var report = { type: "pl", period: "this-month", from: null, to: null, asOf: null };
+  var report = { type: "pl", period: "this-month", from: null, to: null, asOf: null, compare: false };
   var txFilter = { type: "all", accountId: "all" };
   var acctView = { id: null };     // when set, Accounts shows that account's register
   var txSplitMode = false;
@@ -397,13 +397,16 @@
       '<option value="this-month">This month</option><option value="last-month">Last month</option>' +
       '<option value="this-year">This year</option><option value="last-year">Last year</option>' +
       '<option value="all">All time</option><option value="custom">Custom…</option></select>' +
-      '<span id="r-custom" style="display:none;gap:8px"><input type="date" id="r-from" /><input type="date" id="r-to" /></span>';
+      '<span id="r-custom" style="display:none;gap:8px"><input type="date" id="r-from" /><input type="date" id="r-to" /></span>' +
+      (report.type === "pl" ? '<label class="switch-lite"><input type="checkbox" id="r-compare" /> Compare to prior</label>' : "");
     $("#r-period").value = report.period;
     var custom = $("#r-custom"); custom.style.display = report.period === "custom" ? "inline-flex" : "none";
     if (report.from) $("#r-from").value = report.from; if (report.to) $("#r-to").value = report.to;
     $("#r-period").addEventListener("change", function () { report.period = this.value; custom.style.display = this.value === "custom" ? "inline-flex" : "none"; renderReportBody(); });
     $("#r-from").addEventListener("change", function () { report.from = this.value; renderReportBody(); });
     $("#r-to").addEventListener("change", function () { report.to = this.value; renderReportBody(); });
+    var cmp = $("#r-compare");
+    if (cmp) { cmp.checked = !!report.compare; cmp.addEventListener("change", function () { report.compare = this.checked; renderReportBody(); }); }
   }
   function resolvePeriod() {
     var now = new Date(), y = now.getFullYear(), m = now.getMonth();
@@ -422,34 +425,73 @@
   }
   function periodLabel(p) { return (p.from ? fmtDate(p.from) : "the beginning") + " – " + fmtDate(p.to); }
 
-  // Render a report section with parent/child grouping.
-  function hierLines(rows) {
+  // Render a report section with parent/child grouping. When opt.prev (a map of
+  // accountId -> prior amount) is given, adds Prior and Change columns; opt.favorable
+  // is +1 if a rise is good (income) or -1 if a fall is good (expenses).
+  function hierLines(rows, opt) {
+    var compare = !!(opt && opt.prev), prev = (opt && opt.prev) || {}, fav = (opt && opt.favorable) || 1;
+    function prevOf(id) { return prev[id] || 0; }
     var ids = {}; rows.forEach(function (r) { ids[r.account.id] = true; });
     var byParent = {}, tops = [];
     rows.forEach(function (r) { var p = r.account.parentId; if (p && ids[p]) { (byParent[p] = byParent[p] || []).push(r); } else tops.push(r); });
-    function line(acc, amt, cls) { return '<div class="report-line ' + cls + '"><span class="r-name">' + escapeHTML(acc.icon + " " + acc.name) + '</span><span class="r-amt tabular">' + money(amt) + "</span></div>"; }
+    function cells(amt, pv) {
+      var h = '<span class="r-amt tabular">' + money(amt) + "</span>";
+      if (compare) { var d = FD.round2(amt - pv); h += '<span class="r-amt tabular muted">' + money(pv) + '</span><span class="r-amt tabular ' + (Math.abs(d) < 0.005 ? "" : (d * fav >= 0 ? "pos" : "neg")) + '">' + signedMoney(d) + "</span>"; }
+      return h;
+    }
+    function line(acc, amt, pv, cls) { return '<div class="report-line ' + cls + '"><span class="r-name">' + escapeHTML(acc.icon + " " + acc.name) + "</span>" + cells(amt, pv) + "</div>"; }
+    function show(amt, pv) { return Math.abs(amt) > 0.005 || (compare && Math.abs(pv) > 0.005); }
     var html = "";
     tops.forEach(function (r) {
       var kids = byParent[r.account.id] || [];
-      var visibleKids = kids.filter(function (k) { return Math.abs(k.amount) > 0.005; });
+      var visibleKids = kids.filter(function (k) { return show(k.amount, prevOf(k.account.id)); });
       var rolled = r.amount + kids.reduce(function (s, k) { return s + k.amount; }, 0);
+      var rolledPrev = prevOf(r.account.id) + kids.reduce(function (s, k) { return s + prevOf(k.account.id); }, 0);
       if (kids.length) {
-        if (Math.abs(rolled) < 0.005 && !visibleKids.length) return;
-        html += line(r.account, rolled, "parent");
-        visibleKids.forEach(function (k) { html += line(k.account, k.amount, "child"); });
-      } else if (Math.abs(r.amount) > 0.005) { html += line(r.account, r.amount, ""); }
+        if (!show(rolled, rolledPrev) && !visibleKids.length) return;
+        html += line(r.account, rolled, rolledPrev, "parent");
+        visibleKids.forEach(function (k) { html += line(k.account, k.amount, prevOf(k.account.id), "child"); });
+      } else if (show(r.amount, prevOf(r.account.id))) { html += line(r.account, r.amount, prevOf(r.account.id), ""); }
     });
     return html || '<div class="report-line"><span class="r-name muted">None</span><span class="r-amt tabular">—</span></div>';
   }
 
+  function daysBetween(a, b) { return Math.round((Date.parse(b) - Date.parse(a)) / 86400000); }
+  function previousPeriod() {
+    var now = new Date(), y = now.getFullYear(), m = now.getMonth();
+    switch (report.period) {
+      case "this-month": return m === 0 ? monthRange(y - 1, 11) : monthRange(y, m - 1);
+      case "last-month": { var pm = m - 2, yy = y; if (pm < 0) { pm += 12; yy--; } return monthRange(yy, pm); }
+      case "this-year": return { from: (y - 1) + "-01-01", to: (y - 1) + "-12-31" };
+      case "last-year": return { from: (y - 2) + "-01-01", to: (y - 2) + "-12-31" };
+      case "custom": { if (!report.from || !report.to) return null; var days = daysBetween(report.from, report.to) + 1; return { from: FD.addDays(report.from, -days), to: FD.addDays(report.from, -1) }; }
+      default: return null;
+    }
+  }
   function renderPL() {
     var p = resolvePeriod(), r = FD.profitAndLoss(FD.state.journal, FD.state.accounts, p.from, p.to);
-    return '<div class="report"><div class="report-title"><h3>Profit &amp; Loss</h3><div class="muted">' + periodLabel(p) + "</div></div>" +
-      '<div class="report-section-head">Income</div>' + hierLines(r.income) +
-      '<div class="report-subtotal"><span>Total Income</span><span class="tabular">' + money(r.totalIncome) + "</span></div>" +
-      '<div class="report-section-head">Expenses</div>' + hierLines(r.expense) +
-      '<div class="report-subtotal"><span>Total Expenses</span><span class="tabular">' + money(r.totalExpense) + "</span></div>" +
-      '<div class="report-total ' + (r.netIncome >= 0 ? "pos" : "neg") + '"><span>Net ' + (r.netIncome >= 0 ? "Income" : "Loss") + '</span><span class="tabular">' + signedMoney(r.netIncome) + "</span></div></div>";
+    var pp = (report.compare && report.period !== "all") ? previousPeriod() : null;
+    var compare = !!pp, pr = null, prevMap = {};
+    if (compare) {
+      pr = FD.profitAndLoss(FD.state.journal, FD.state.accounts, pp.from, pp.to);
+      pr.income.concat(pr.expense).forEach(function (x) { prevMap[x.account.id] = x.amount; });
+    }
+    function subtotal(label, cur, prv, fav) {
+      var h = '<div class="report-subtotal"><span>' + label + '</span><span class="tabular">' + money(cur) + "</span>";
+      if (compare) { var d = FD.round2(cur - prv); h += '<span class="tabular muted">' + money(prv) + '</span><span class="tabular ' + (Math.abs(d) < 0.005 ? "" : (d * fav >= 0 ? "pos" : "neg")) + '">' + signedMoney(d) + "</span>"; }
+      return h + "</div>";
+    }
+    var netD = compare ? FD.round2(r.netIncome - pr.netIncome) : 0;
+    var colhead = compare ? '<div class="report-colhead"><span></span><span>This period</span><span>Prior</span><span>Change</span></div>' : "";
+    return '<div class="report' + (compare ? " compare" : "") + '"><div class="report-title"><h3>Profit &amp; Loss</h3><div class="muted">' + periodLabel(p) + (compare ? " &nbsp;vs&nbsp; " + periodLabel(pp) : "") + "</div></div>" +
+      colhead +
+      '<div class="report-section-head">Income</div>' + hierLines(r.income, compare ? { prev: prevMap, favorable: 1 } : null) +
+      subtotal("Total Income", r.totalIncome, compare ? pr.totalIncome : 0, 1) +
+      '<div class="report-section-head">Expenses</div>' + hierLines(r.expense, compare ? { prev: prevMap, favorable: -1 } : null) +
+      subtotal("Total Expenses", r.totalExpense, compare ? pr.totalExpense : 0, -1) +
+      '<div class="report-total ' + (r.netIncome >= 0 ? "pos" : "neg") + '"><span>Net ' + (r.netIncome >= 0 ? "Income" : "Loss") + '</span><span class="tabular">' + signedMoney(r.netIncome) + "</span>" +
+      (compare ? '<span class="tabular muted">' + signedMoney(pr.netIncome) + '</span><span class="tabular ' + (netD >= 0 ? "pos" : "neg") + '">' + signedMoney(netD) + "</span>" : "") +
+      "</div></div>";
   }
   function renderBS() {
     var asOf = report.asOf || todayISO(), r = FD.balanceSheet(FD.state.journal, FD.state.accounts, asOf);
