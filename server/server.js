@@ -128,7 +128,7 @@ function cors(res, origin) {
 function readBody(req) {
   return new Promise(function (resolve, reject) {
     var chunks = "", size = 0;
-    req.on("data", function (c) { size += c.length; if (size > 8 * 1024 * 1024) { reject(new Error("Body too large")); req.destroy(); } else chunks += c; });
+    req.on("data", function (c) { size += c.length; if (size > 32 * 1024 * 1024) { reject(new Error("Body too large")); req.destroy(); } else chunks += c; });
     req.on("end", function () { if (!chunks) return resolve({}); try { resolve(JSON.parse(chunks)); } catch (e) { reject(new Error("Invalid JSON")); } });
     req.on("error", reject);
   });
@@ -141,8 +141,11 @@ var MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css",
 function serveStatic(req, res) {
   var urlPath = decodeURIComponent(req.url.split("?")[0]);
   if (urlPath === "/") urlPath = "/index.html";
-  var full = path.normalize(path.join(STATIC_DIR, urlPath));
-  if (full.indexOf(path.normalize(STATIC_DIR)) !== 0) { send(res, 403, { error: "Forbidden" }); return; }
+  var root = path.normalize(STATIC_DIR);
+  var full = path.normalize(path.join(root, urlPath));
+  // Must be the root itself or strictly inside it (guards against ../ traversal
+  // and sibling dirs that merely share the prefix, e.g. /app vs /app-secret).
+  if (full !== root && full.indexOf(root + path.sep) !== 0) { send(res, 403, { error: "Forbidden" }); return; }
   fs.readFile(full, function (err, buf) {
     if (err) { send(res, 404, { error: "Not found" }); return; }
     res.writeHead(200, { "Content-Type": MIME[path.extname(full)] || "application/octet-stream" });

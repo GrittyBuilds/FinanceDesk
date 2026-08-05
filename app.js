@@ -325,7 +325,7 @@
     } else { icon = "📘"; title = entry.description || "Journal entry"; sub = entry.kind || "journal"; }
 
     var clip = FD.getAttachment(entry.id) ? ' <span class="tx-clip" title="Has receipt">📎</span>' : "";
-    li.innerHTML = '<div class="tx-icon">' + icon + '</div><div class="tx-body"><div class="tx-desc"></div><div class="tx-meta"></div></div>' +
+    li.innerHTML = '<div class="tx-icon">' + escapeHTML(icon) + '</div><div class="tx-body"><div class="tx-desc"></div><div class="tx-meta"></div></div>' +
       '<div class="tx-right"><div class="tx-amount ' + amountCls + '">' + sign + money(d.amount) + '</div><div class="tx-tag">' + escapeHTML(d.kind) + clip + "</div></div>";
     $(".tx-desc", li).textContent = title; $(".tx-meta", li).textContent = sub;
     if (d.kind === "expense" || d.kind === "income" || d.kind === "transfer") {
@@ -351,7 +351,7 @@
         var a = node.account, child = node.depth > 0;
         var bal = child ? FD.balance(j, a, { to: today }) : FD.rolledBalance(j, FD.state.accounts, a, { to: today });
         html += '<div class="acct-row' + (child ? " child" : "") + '" data-id="' + a.id + '">' +
-          '<div class="acct-ico">' + a.icon + '</div><div class="acct-name">' + (child ? '<span class="acct-child-marker">↳</span> ' : "") + escapeHTML(a.name) + (a.archived ? '<span class="archived-note">archived</span>' : "") + '</div>' +
+          '<div class="acct-ico">' + escapeHTML(a.icon) + '</div><div class="acct-name">' + (child ? '<span class="acct-child-marker">↳</span> ' : "") + escapeHTML(a.name) + (a.archived ? '<span class="archived-note">archived</span>' : "") + '</div>' +
           '<div class="acct-bal">' + money(bal) + "</div></div>";
       });
       html += "</div>";
@@ -373,7 +373,7 @@
 
     var html = '<div class="card"><div class="register-head">' +
       '<button class="btn btn-ghost btn-sm" id="reg-back">← Accounts</button>' +
-      '<div class="reg-title"><span class="acct-ico">' + a.icon + '</span><h2>' + escapeHTML(a.name) + '</h2></div>' +
+      '<div class="reg-title"><span class="acct-ico">' + escapeHTML(a.icon) + '</span><h2>' + escapeHTML(a.name) + '</h2></div>' +
       '<span class="reg-balance">' + money(current) + '</span>' +
       '<button class="btn btn-ghost btn-sm" id="reg-reconcile">' + (reconcileMode ? "Done" : "Reconcile") + '</button>' +
       '<button class="btn btn-ghost btn-sm" id="reg-edit">Edit account</button></div>';
@@ -443,7 +443,7 @@
       var fill = ""; if (limit > 0) { if (used > limit) fill = "over"; else if (used / limit >= 0.8) fill = "warn"; }
       var spentText = limit > 0 ? money(used) + " of " + money(limit) + (used > limit ? " · over by " + money(used - limit) : "") : money(used) + " spent";
       return '<li class="budget-row"' + (child ? ' style="padding-left:22px"' : "") + '>' +
-        '<div class="budget-top"><span class="budget-name"><span>' + (child ? "↳ " : "") + a.icon + '</span><span>' + escapeHTML(a.name) + '</span></span>' +
+        '<div class="budget-top"><span class="budget-name"><span>' + (child ? "↳ " : "") + escapeHTML(a.icon) + '</span><span>' + escapeHTML(a.name) + '</span></span>' +
         '<span class="budget-spent' + (limit > 0 && used > limit ? " over" : "") + '">' + spentText + '</span>' +
         '<input class="budget-input" type="number" min="0" step="1" placeholder="No limit" data-id="' + a.id + '"' + (limit > 0 ? ' value="' + limit + '"' : "") + " /></div>" +
         '<div class="budget-bar"><div class="budget-fill ' + fill + '" style="width:' + pct + '%"></div></div></li>';

@@ -553,7 +553,7 @@
     persist();
   }
   function removeAttachment(entryId) {
-    if (state.attachments[entryId] || true) state.attachments[entryId] = { removed: 1, updatedAt: nowMs() };
+    state.attachments[entryId] = { removed: 1, updatedAt: nowMs() };
     persist();
   }
   function getAttachment(entryId) {

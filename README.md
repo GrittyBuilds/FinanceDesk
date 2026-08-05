@@ -115,6 +115,12 @@ Honest scope: this protects data **at rest on the device**. It is not a
 server-enforced login and can't defend against malware in your browser. **If you
 forget the PIN, only a JSON backup can recover your data** — so keep one.
 
+**Shared-workspace safety:** text and icons that arrive from other family members
+via sync (or from an imported backup) are HTML-escaped when rendered, so a
+malicious account name or category icon can't run scripts on your device.
+Receipt images are stored in the browser (and synced), so a large collection can
+approach the browser's storage limit; export a JSON backup periodically.
+
 ## Sync (self-hosted, personal + shared)
 
 Sync is optional and runs on a small server you host yourself — see
