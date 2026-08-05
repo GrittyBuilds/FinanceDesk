@@ -52,9 +52,10 @@ views) and **mobile** (bottom tab bar with a quick-add button, stacked layouts).
 - **PIN lock & encryption** — optionally lock the app behind a PIN and encrypt
   your data **at rest** on the device with AES-GCM (key derived from your PIN via
   PBKDF2). See "Security" below.
-- **Sync across devices & shared family books** — an optional, **self-hosted**
-  Node server lets you sync your Personal books between devices and share a
-  **Household** ledger with family. See [`server/README.md`](server/README.md).
+- **Sync across devices & shared family books** — optional cloud sync backed by
+  either a **self-hosted** Node server or your own **Supabase** project. Sync your
+  Personal books between devices and share a **Household** ledger with family,
+  with end-to-end encryption available on both.
 - **Light / dark theme**, responsive, and **zero dependencies** on the client —
   plain HTML, CSS, and JavaScript.
 
@@ -123,21 +124,60 @@ malicious account name or category icon can't run scripts on your device.
 Receipt images are stored in the browser (and synced), so a large collection can
 approach the browser's storage limit; export a JSON backup periodically.
 
-## Sync (self-hosted, personal + shared)
+## Sync (personal + shared)
 
-Sync is optional and runs on a small server you host yourself — see
-[`server/README.md`](server/README.md). In short:
+Sync is optional, and you choose where your data lives in **Settings → Sync →
+Cloud backend**:
 
-1. Run `node server/server.js` (zero dependencies). It serves the app **and** the
-   sync API on one origin.
-2. In **Settings → Sync**, enter the server URL, **Register**, then **Log in** on
-   each device.
-3. Each account gets a **Personal** workspace. Create a **Shared** workspace for
+- **Self-hosted server** — a small Node server you run yourself (below).
+- **Supabase** — your own free/managed Supabase project (below).
+
+Both backends expose the same accounts, workspaces, invites, versioned
+push/pull, merge, and end-to-end encryption; only the plumbing differs. Whichever
+you pick:
+
+1. **Register** once, then **Log in** on each device.
+2. Each account gets a **Personal** workspace. Create a **Shared** workspace for
    the family and **Invite** others with a code.
-4. Turn on **Auto-sync** for two-way sync that runs after each change and every
+3. Turn on **Auto-sync** for two-way sync that runs after each change and every
    45 seconds. It **merges** rather than overwrites, so two people editing the
    same workspace both keep their changes. (**Push** and **Pull** remain as manual
    one-way overrides.)
+
+### Option A — self-hosted server
+
+See [`server/README.md`](server/README.md). In short:
+
+1. Run `node server/server.js` (zero dependencies). It serves the app **and** the
+   sync API on one origin.
+2. In **Settings → Sync**, leave the backend on **Self-hosted server**, enter the
+   server URL, then **Register** / **Log in**.
+
+### Option B — Supabase
+
+Use a [Supabase](https://supabase.com) project as the cloud store — no server to
+run, and the same end-to-end encryption applies.
+
+1. Create a project at supabase.com (the free tier is plenty).
+2. In the dashboard, open **SQL Editor → New query**, paste the contents of
+   [`supabase/setup.sql`](supabase/setup.sql), and **Run**. This creates the
+   tables, locks them with Row-Level Security, and installs the small set of
+   `SECURITY DEFINER` functions the app calls — so every user only ever touches
+   workspaces they belong to.
+3. Decide how sign-up should work under **Authentication → Providers → Email**:
+   - Turn **Confirm email** *off* for the simplest flow (Register logs you
+     straight in), or
+   - Leave it on — after **Register** you'll get an email to confirm, then
+     **Log in**.
+4. Grab your project's **URL** and **anon public** key from **Project Settings →
+   API**.
+5. In **Settings → Sync**, set **Cloud backend** to **Supabase**, paste the URL
+   and anon key, **Connect**, then **Register** / **Log in**.
+
+The anon key is safe to ship in the client: Row-Level Security means it grants no
+direct table access — all reads and writes go through the vetted functions, gated
+on your authenticated user id. With **end-to-end encryption** on, Supabase only
+ever stores ciphertext.
 
 ### How merge works
 
@@ -156,14 +196,16 @@ push (the client retries the merge if the server moved underneath it).
 
 In **Settings → Sync → End-to-end encryption**, set a **sync passphrase**. When
 on, your data is encrypted (AES-GCM, key derived from the passphrase via PBKDF2)
-**before it leaves the device**, and the server only ever stores ciphertext — it
-can't read your books. Every device and family member sharing a workspace must
+**before it leaves the device**, and the backend (self-hosted server or Supabase)
+only ever stores ciphertext — it can't read your books. Every device and family
+member sharing a workspace must
 enter the **same passphrase**; a device without it is told the data is encrypted
 and can't pull. If the passphrase is lost, encrypted sync data can't be
 recovered, so keep a JSON backup.
 
-Without E2E on, synced data is stored **unencrypted on your server** (which you
-control). Either way, the PIN feature separately protects the local device copy.
+Without E2E on, synced data is stored **unencrypted** on whichever backend you
+chose (your own server, or your own Supabase project). Either way, the PIN feature
+separately protects the local device copy.
 
 ## Project structure
 
@@ -172,9 +214,10 @@ index.html   App shell (sidebar + mobile bottom-nav), views, and modals
 styles.css   Responsive styling and theming (CSS custom properties)
 store.js     Data model + double-entry engine + reports + persistence
 crypto.js    PIN vault — AES-GCM encryption of data at rest (Web Crypto)
-sync.js      Client sync layer (talks to the self-hosted server)
+sync.js      Client sync layer (pluggable backends: self-hosted server / Supabase)
 app.js       UI layer: router, views, forms, charts, CSV
 server/      Self-hosted sync server (Node, zero dependencies)
+supabase/    setup.sql — tables, RLS, and functions for the Supabase backend
 ```
 
 `store.js` is DOM-free and can be loaded in Node for testing the engine.

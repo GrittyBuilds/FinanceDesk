@@ -722,13 +722,16 @@
       applyingRemote = false;
       var after = FD.exportData();
       if (currentViewName() !== "settings") refresh();
-      if (!sameDataset(r.data, after)) {
+      // Push if the dataset changed, or when forced. A force push re-uploads even
+      // when the decrypted data is identical — needed when an E2E toggle changes
+      // how the server copy must be stored (encrypt on enable, decrypt on disable).
+      if (opts.force || !sameDataset(r.data, after)) {
         return FDSync.push(ws, after).then(function (r2) { finish("Synced • v" + r2.version); });
       }
       finish("Up to date • v" + r.version);
     }).catch(function (err) {
       syncing = false;
-      if (err && err.status === 409 && !opts._retried) return fullSync({ _retried: true });
+      if (err && err.status === 409 && !opts._retried) return fullSync({ _retried: true, force: opts.force });
       setAutoStatus(err && err.message ? err.message : "Sync failed", true);
     });
     function finish(msg) { syncing = false; setAutoStatus(msg); if (pendingSync) { pendingSync = false; setTimeout(function () { fullSync(); }, 60); } }
@@ -761,10 +764,17 @@
   function syncNote(msg, cls) { var n = $("#sync-note"); if (n) { n.textContent = msg || ""; n.className = "sync-note" + (cls ? " " + cls : ""); } }
   function renderSync() {
     var body = $("#sync-body"); if (!body) return;
-    var cfg = FDSync.config();
-    var html = '<div class="settings-row"><div><div class="s-label">Server URL</div><div class="s-desc">Your self-hosted sync server.</div></div>' +
-      '<div class="settings-actions sync-inline"><input id="sync-url" class="sync-url" placeholder="http://localhost:4000" value="' + escapeHTML(cfg.url || "") + '" /><button class="btn btn-ghost btn-sm" id="sync-connect">Connect</button></div></div>' +
-      '<div id="sync-note" class="sync-note"></div>';
+    var cfg = FDSync.config(), backend = FDSync.backend();
+    var html = '<div class="settings-row"><div><div class="s-label">Cloud backend</div><div class="s-desc">Where your synced data lives.</div></div>' +
+      '<div class="settings-actions"><select id="sync-backend"><option value="server"' + (backend === "server" ? " selected" : "") + '>Self-hosted server</option><option value="supabase"' + (backend === "supabase" ? " selected" : "") + '>Supabase</option></select></div></div>';
+    if (backend === "supabase") {
+      html += '<div class="settings-row"><div><div class="s-label">Supabase project</div><div class="s-desc">Project URL and anon (public) key. See <code>supabase/setup.sql</code>.</div></div>' +
+        '<div class="settings-actions sync-inline"><input id="sb-url" class="sync-url" placeholder="https://xxxx.supabase.co" value="' + escapeHTML(cfg.sbUrl || "") + '" /><input id="sb-key" class="sync-url" placeholder="anon public key" value="' + escapeHTML(cfg.anonKey || "") + '" /><button class="btn btn-ghost btn-sm" id="sync-connect">Connect</button></div></div>';
+    } else {
+      html += '<div class="settings-row"><div><div class="s-label">Server URL</div><div class="s-desc">Your self-hosted sync server.</div></div>' +
+        '<div class="settings-actions sync-inline"><input id="sync-url" class="sync-url" placeholder="http://localhost:4000" value="' + escapeHTML(cfg.url || "") + '" /><button class="btn btn-ghost btn-sm" id="sync-connect">Connect</button></div></div>';
+    }
+    html += '<div id="sync-note" class="sync-note"></div>';
     if (!FDSync.isLoggedIn()) {
       html += '<div class="settings-row"><div><div class="s-label">Account</div><div class="s-desc">Register once, then log in on each device.</div></div>' +
         '<div class="settings-actions sync-inline"><input id="sync-email" placeholder="email" style="width:170px" /><input id="sync-pass" type="password" placeholder="password" style="width:140px" />' +
@@ -775,16 +785,21 @@
         '<div id="sync-e2ee"></div><div id="sync-ws"></div>';
     }
     body.innerHTML = html;
+    // Persist the current backend's connection config from the visible fields.
+    function saveBackendConfig() {
+      if (FDSync.backend() === "supabase") FDSync.setSupabase($("#sb-url").value.trim(), $("#sb-key").value.trim());
+      else FDSync.setServer($("#sync-url").value.trim());
+    }
+    $("#sync-backend").addEventListener("change", function () { FDSync.setBackend(this.value); renderSync(); });
     $("#sync-connect").addEventListener("click", function () {
-      FDSync.setServer($("#sync-url").value.trim());
-      syncNote("Connecting…");
-      FDSync.health().then(function (h) { syncNote("Connected — " + h.users + " user(s), " + h.workspaces + " workspace(s).", "ok"); })
-        .catch(function () { syncNote("Could not reach the server. Check the URL and that it's running.", "bad"); });
+      saveBackendConfig(); syncNote("Connecting…");
+      FDSync.health().then(function (h) { syncNote(h.message || "Connected.", "ok"); })
+        .catch(function (e) { syncNote(e.message || "Could not connect.", "bad"); });
     });
     if (!FDSync.isLoggedIn()) {
       var creds = function () { return { email: $("#sync-email").value.trim(), pass: $("#sync-pass").value }; };
-      $("#sync-register").addEventListener("click", function () { var c = creds(); FDSync.setServer($("#sync-url").value.trim()); FDSync.register(c.email, c.pass).then(renderSync).catch(function (e) { syncNote(e.message, "bad"); }); });
-      $("#sync-login").addEventListener("click", function () { var c = creds(); FDSync.setServer($("#sync-url").value.trim()); FDSync.login(c.email, c.pass).then(renderSync).catch(function (e) { syncNote(e.message, "bad"); }); });
+      $("#sync-register").addEventListener("click", function () { var c = creds(); saveBackendConfig(); FDSync.register(c.email, c.pass).then(renderSync).catch(function (e) { syncNote(e.message, e.info ? "ok" : "bad"); }); });
+      $("#sync-login").addEventListener("click", function () { var c = creds(); saveBackendConfig(); FDSync.login(c.email, c.pass).then(renderSync).catch(function (e) { syncNote(e.message, "bad"); }); });
     } else {
       $("#sync-logout").addEventListener("click", function () { FDSync.logout(); renderSync(); });
       renderE2EE();
@@ -802,6 +817,7 @@
       $("#e2ee-off").addEventListener("click", function () {
         if (!confirm("Turn off end-to-end encryption? Future pushes will store data unencrypted on the server.")) return;
         FDSync.disableE2EE(); renderE2EE();
+        reencryptServerCopy("Encryption off. Uploading an unencrypted copy…");
       });
     } else {
       wrap.innerHTML = '<div class="settings-row"><div><div class="s-label">End-to-end encryption</div>' +
@@ -824,7 +840,17 @@
     FDSync.setE2EE(a);
     $("#e2ee-dialog").close();
     renderE2EE();
-    var note = $("#ws-note"); if (note) { note.textContent = "Encryption on. Push to upload an encrypted copy; other devices need this passphrase to pull."; note.className = "sync-note ok"; }
+    reencryptServerCopy("Encryption on. Uploading an encrypted copy; other devices need this passphrase to pull.");
+  }
+  // After an E2E toggle, force a sync so the server copy is re-stored in the new
+  // form (encrypted or plaintext) even though the decrypted data is unchanged.
+  function reencryptServerCopy(msg) {
+    var note = $("#ws-note"); if (note) { note.textContent = msg; note.className = "sync-note ok"; }
+    if (FDSync.isLoggedIn() && FDSync.activeWorkspace()) {
+      fullSync({ force: true }).then(function () {
+        var n = $("#ws-note"); if (n) { n.textContent = "Done — server copy updated."; n.className = "sync-note ok"; }
+      });
+    }
   }
   function loadWorkspaces() {
     var wrap = $("#sync-ws"); if (!wrap) return;
